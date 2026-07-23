@@ -59,10 +59,16 @@ resource "aws_instance" "ec2" {
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.this.id]
 
+  root_block_device {
+    volume_size = var.root_volume_size
+    volume_type = "gp3"
+  }
+
   tags = {
     Name = var.role
   }
 }
+
 
 resource "aws_eip" "this" {
   instance = aws_instance.ec2.id

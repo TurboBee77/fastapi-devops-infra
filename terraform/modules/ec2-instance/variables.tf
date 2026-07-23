@@ -25,3 +25,9 @@ variable "extra_ingress_ports" {
   type        = list(number)
   default     = []
 }
+
+variable "root_volume_size" {
+  description = "Rozmiar root volume (EBS) w GB. Domyślne AMI Ubuntu startuje z 8 GB - zwiększ dla instancji hostujących dane (np. Postgres w Docker)."
+  type        = number
+  default     = 8
+}
