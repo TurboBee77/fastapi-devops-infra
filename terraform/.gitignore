@@ -1,0 +1,10 @@
+# Lokalny cache providera i state
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Prawdziwe wartości zmiennych (specyficzne dla środowiska, mogą zawierać wrażliwe dane)
+terraform.tfvars
+*.auto.tfvars
