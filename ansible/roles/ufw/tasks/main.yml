@@ -7,9 +7,9 @@
 
 - name: Ustaw domyślną politykę
   community.general.ufw:     
-    logging: on
+    logging: "on"
     direction: incoming
-    tulle: deny
+    policy: deny
 
 - name: Zezwól na ruch wychodzacy
   community.general.ufw:    
