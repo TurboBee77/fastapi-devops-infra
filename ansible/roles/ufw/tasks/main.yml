@@ -1,0 +1,34 @@
+---
+- name: Zainstaluj UFW 
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+
+- name: Ustaw domyślną politykę
+  community.general.ufw:     
+    logging: "on"
+    direction: incoming
+    policy: deny
+
+- name: Zezwól na ruch wychodzacy
+  community.general.ufw:    
+    direction: outgoing
+    policy: allow
+
+- name: Zezwol na SSH
+  community.general.ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+  
+- name: Zezwol na porty per rola
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ ufw_allowed_ports }}"
+
+- name: Wlacz ufw
+  community.general.ufw:
+    state: enabled

@@ -1,1 +1,5 @@
 CLAUDE.md
+
+# generowane przez ansible/scripts/generate_inventory.py z terraform output
+ansible/inventory/hosts.yml
+__pycache__/
