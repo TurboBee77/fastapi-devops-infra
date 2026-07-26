@@ -4,3 +4,8 @@
   roles:
     - docker
     - ufw
+
+- name: Postaw kontener docker aplikacji
+  hosts: app
+  roles:
+    - deploy-app
