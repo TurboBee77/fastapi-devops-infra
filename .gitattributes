@@ -1,0 +1,5 @@
+# Wymuszenie LF dla wszystkich plików tekstowych — Terraform/Ansible są
+# uruchamiane z Linuksa (control node), a checkout repo odbywa się też na
+# Windows. Bez tego CRLF wprowadzone przez edytor na Windows potrafi wywrócić
+# parsowanie YAML/skryptów na Linuksie w sposób trudny do zdiagnozowania.
+* text=auto eol=lf
