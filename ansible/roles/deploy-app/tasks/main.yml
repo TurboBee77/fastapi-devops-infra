@@ -19,5 +19,5 @@
 - name: Zbuduj obraz i uruchom stack (app + db)
   community.docker.docker_compose_v2:
     project_src: "{{ app_dest }}"
-    build: always
+    build: policy
     state: present
