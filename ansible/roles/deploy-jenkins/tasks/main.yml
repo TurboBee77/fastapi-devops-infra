@@ -1,4 +1,10 @@
 ---
+- name: Stworz folder docelowy dla plikow jenkins
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}"
+    state: directory
+    mode: "0744"
+
 - name: Kopiuj plik dockerfile z repo do miejsca docelowego
   ansible.builtin.copy:
     src: files/Dockerfile
