@@ -41,7 +41,7 @@ def build_inventory(outputs: dict) -> dict:
                 f"albo czy infrastruktura jest zaaplikowana (terraform apply)."
             )
         ip = outputs[output_name]["value"]
-        children[role] = {"hosts": {role: {"ansible_host": ip}}}
+        children[role] = {"hosts": {f"{role}-VM": {"ansible_host": ip}}}
 
     return {"all": {"children": children}}
 
