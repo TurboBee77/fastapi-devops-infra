@@ -9,3 +9,8 @@
   hosts: app
   roles:
     - deploy-app
+
+- name: Postaw kontener docker ci
+  hosts: ci
+  roles:
+    - deploy-jenkins
