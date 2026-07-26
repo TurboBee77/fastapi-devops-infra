@@ -5,9 +5,10 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–2 zamknięte.** Terraform stawia infrastrukturę, Ansible
-konfiguruje bazę (Docker + firewall) na wszystkich hostach. Deploy aplikacji,
-Jenkins i monitoring to kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
+**Stan repo: Etap 0–3 zamknięte.** Terraform stawia infrastrukturę, Ansible
+konfiguruje bazę (Docker + firewall) na wszystkich hostach i wdraża aplikację
+(backend + PostgreSQL w Docker Compose) na VM2. Jenkins i monitoring to
+kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
 
 ## Architektura
 
@@ -22,9 +23,10 @@ modułem Terraform (`terraform/modules/ec2-instance`), wywołanym trzykrotnie:
 
 Sieć: domyślne VPC konta AWS, region `eu-central-1`. Każda instancja ma
 własny Elastic IP (adres przetrwa `terraform destroy`→`apply`) i własny
-security group, obecnie otwierający wyłącznie port 22 (SSH) — patrz
-[`docs/network-architecture.md`](docs/network-architecture.md) po diagram i
-plan rozszerzeń portów w kolejnych etapach.
+security group. Każdy zaczyna z portem 22 (SSH); `app-sg` ma dodatkowo
+otwarty port 8000 (API aplikacji, przez zmienną `extra_ingress_ports`
+modułu `ec2-instance`) — patrz [`docs/network-architecture.md`](docs/network-architecture.md)
+po diagram i plan dalszych rozszerzeń portów.
 
 Na poziomie systemu operacyjnego druga warstwa firewalla to `ufw` (rola
 Ansible), konfigurowana z domyślną polityką `deny incoming` / `allow
@@ -42,11 +44,18 @@ działa natywnie na Windows jako control node):
   `terraform.tfvars` — Terraform jej nie tworzy, musi już istnieć
   (`aws ec2 create-key-pair` albo `aws ec2 import-key-pair`, jeśli masz już
   klucz SSH wygenerowany lokalnie)
-- **Ansible** (`ansible-core`) + kolekcja `community.general` (moduł `ufw`
-  nie jest częścią `ansible-core`):
+- **Ansible** (`ansible-core`) + kolekcje spoza `ansible-core` (moduł `ufw`
+  i moduł `docker_compose_v2` nie są w nim zawarte), zdeklarowane w
+  `ansible/requirements.yml`:
   ```bash
+  cd ansible
   ansible-galaxy collection install community.general
+  ansible-galaxy collection install -r requirements.yml
   ```
+- **Hasło do Ansible Vault** — sekrety appki (hasło do Postgresa,
+  `SECRET_KEY`) są zaszyfrowane w `ansible/roles/deploy-app/vars/main.yml`.
+  Playbook poprosi o to hasło interaktywnie (`--ask-vault-pass`) — nie jest
+  ono nigdzie w repo, musisz je znać/mieć zapisane osobno (menedżer haseł).
 - **Python 3 + PyYAML** na control node — potrzebne do
   `ansible/scripts/generate_inventory.py` (PyYAML jest i tak zależnością
   samego Ansible, zwykle nic dodatkowego nie trzeba instalować)
@@ -81,18 +90,25 @@ terraform apply
 cd ../ansible
 python3 scripts/generate_inventory.py
 
-# 3. Konfiguracja bazowa hostów (Docker + ufw)
+# 3. Kolekcje Ansible spoza ansible-core (jednorazowo per control node)
+ansible-galaxy collection install community.general
+ansible-galaxy collection install -r requirements.yml
+
+# 4. Konfiguracja bazowa hostów (Docker + ufw) i deploy aplikacji na VM2
 ansible-playbook --syntax-check site.yml   # opcjonalny szybki filtr
-ansible-playbook site.yml
+ansible-playbook site.yml --ask-vault-pass
 ```
 
 Playbook jest idempotentny — powtórne uruchomienie na już skonfigurowanych
-hostach nie zgłasza zmian (`changed=0`).
+hostach nie zgłasza zmian (`changed=0`), łącznie z rolą `deploy-app`.
 
 Weryfikacja ad-hoc (opcjonalnie):
 ```bash
 ansible all -m ansible.builtin.command -a "docker ps"
 ansible all -m ansible.builtin.command -a "ufw status verbose"
+
+# appka odpowiada z zewnątrz? (adres z: terraform output app_public_ip)
+curl http://<Elastic-IP-app>:8000/docs
 ```
 
 ## Sprzątanie (Free Tier)
@@ -120,10 +136,15 @@ fastapi-devops-infra/
 │   └── modules/ec2-instance/   (reużywalny moduł, wywołany 3×: ci/app/monitoring)
 ├── ansible/
 │   ├── ansible.cfg
-│   ├── group_vars/all.yml
+│   ├── requirements.yml        (kolekcje spoza ansible-core, np. community.docker)
+│   ├── group_vars/{all,app}.yml
 │   ├── inventory/hosts.yml     (generowany skryptem, gitignored)
 │   ├── scripts/generate_inventory.py
-│   ├── roles/{docker,ufw}/
+│   ├── roles/
+│   │   ├── docker/, ufw/       (wspólne, wszystkie VM)
+│   │   └── deploy-app/         (specyficzna dla VM2: backend + PostgreSQL)
+│   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault)
+│   │       └── templates/docker-compose.yml.j2
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
@@ -138,8 +159,10 @@ Konwencje branchy i commitów (Conventional Commits) — patrz
 Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
-- Rola Ansible `deploy` (docker-compose dla `app`/`monitoring`, Jenkins na
-  `ci`) — Etap 3+
+- Role Ansible `deploy-jenkins` (VM1) i `deploy-monitoring` (VM3) — Etap 4, 7
+- Obraz appki buduje się **lokalnie na VM2** z klonowanego repo (`build: ./src`
+  w compose) — Docker Hub (publikacja i `docker compose pull` zamiast
+  lokalnego builda) to dopiero Etap 5, wykona to Jenkins
 - Jenkinsfile / pipeline CI-CD — Etap 4–6 (znajdzie się w forku aplikacji,
   nie w tym repo)
 - Prometheus/Grafana — Etap 7
@@ -152,3 +175,10 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
 - Security groups nie mają jeszcze reguł komunikacji między instancjami
   (np. `ci` → `app` po SSH do celów deployu) — planowane przy Etapie 6/7
   przez `source_security_group_id`, nie szeroki CIDR
+- Hasło do Ansible Vault jest podawane ręcznie (`--ask-vault-pass`) przy
+  każdym uruchomieniu — automatyzacja (`--vault-password-file` z pliku poza
+  repo, albo credential w Jenkinsie) to temat Etapu 4/6, nie teraz
+- `/opt/app/docker-compose.yml` na VM2 ma `mode: 0600` (zawiera jawne hasło
+  i `SECRET_KEY` po odszyfrowaniu Vaulta) — ręczne komendy `docker compose`
+  na tej maszynie wymagają `sudo`, zwykły użytkownik `ubuntu` nie odczyta
+  pliku bezpośrednio
