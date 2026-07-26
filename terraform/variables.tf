@@ -20,3 +20,13 @@ variable "instance_type" {
   type        = string
   default     = "t3.micro"
 }
+
+variable "app_extra_ingress_ports" {
+  description = "Dodatkowe porty akceptowane przez sg dla serwera aplikacji"
+  type        = list(number)
+}
+
+variable "ci_extra_ingress_ports" {
+  description = "Dodatkowe porty akceptowane przez sg dla serwera ci"
+  type        = list(number)
+}
