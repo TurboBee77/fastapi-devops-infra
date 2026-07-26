@@ -1,0 +1,6 @@
+---
+- name: Konfiguracja bazowa serwerów
+  hosts: all
+  roles:
+    - docker
+    - ufw
