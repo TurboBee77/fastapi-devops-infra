@@ -1,0 +1,22 @@
+---
+- name: Upewnij się, że git jest zainstalowany
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Sklonuj/zaktualizuj repozytorium appki
+  ansible.builtin.git:
+    repo: "{{ app_repo_url }}"
+    dest: "{{ app_dest }}"
+    version: master
+
+- name: Wyrenderuj docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ app_dest }}/docker-compose.yml"
+    mode: "0600"
+
+- name: Zbuduj obraz i uruchom stack (app + db)
+  ansible.builtin.command:
+    cmd: docker compose up -d --build
+    chdir: "{{ app_dest }}"

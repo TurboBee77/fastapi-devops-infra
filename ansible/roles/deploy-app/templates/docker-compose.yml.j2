@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    restart: on-failure
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql://{{ postgres_user }}:{{ vault_postgres_password }}@db:5432/{{ postgres_db }}"
+      SECRET_KEY: "{{ vault_secret_key }}"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:11.5-alpine
+    restart: on-failure
+    environment:
+      POSTGRES_USER: "{{ postgres_user }}"
+      POSTGRES_PASSWORD: "{{ vault_postgres_password }}"
+      POSTGRES_DB: "{{ postgres_db }}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
