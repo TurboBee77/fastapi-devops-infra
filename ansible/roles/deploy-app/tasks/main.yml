@@ -9,6 +9,7 @@
     repo: "{{ app_repo_url }}"
     dest: "{{ app_dest }}"
     version: master
+    force: true
 
 - name: Wyrenderuj docker-compose.yml
   ansible.builtin.template:
