@@ -56,6 +56,23 @@ działa natywnie na Windows jako control node):
   `SECRET_KEY`) są zaszyfrowane w `ansible/roles/deploy-app/vars/main.yml`.
   Playbook poprosi o to hasło interaktywnie (`--ask-vault-pass`) — nie jest
   ono nigdzie w repo, musisz je znać/mieć zapisane osobno (menedżer haseł).
+
+  **Zakładasz repo od zera (świeży klon, nowy Vault)?** Zaszyfrowany
+  `vars/main.yml` jest wprawdzie w repo, ale bez znajomości hasła Vaulta
+  nikt poza autorem go nie odszyfruje. Żeby założyć własny, użyj wzorca
+  `vars/main.yml.example` (jawny, pokazuje tylko oczekiwane nazwy zmiennych):
+  ```bash
+  cp ansible/roles/deploy-app/vars/main.yml.example \
+     ansible/roles/deploy-app/vars/main.yml
+  # wpisz prawdziwe wartości zamiast "changeme", potem zaszyfruj:
+  ansible-vault encrypt ansible/roles/deploy-app/vars/main.yml
+  ```
+  Ansible zapyta o nowe hasło do Vaulta — to hasło (nie jego zawartość)
+  musisz zapamiętać/zapisać osobno, będzie potrzebne przy każdym
+  `--ask-vault-pass`. Edycja już zaszyfrowanego pliku później:
+  `ansible-vault edit ansible/roles/deploy-app/vars/main.yml` (poprosi
+  o hasło, otworzy odszyfrowaną treść w `$EDITOR`, zaszyfruje z powrotem
+  przy zapisie).
 - **Python 3 + PyYAML** na control node — potrzebne do
   `ansible/scripts/generate_inventory.py` (PyYAML jest i tak zależnością
   samego Ansible, zwykle nic dodatkowego nie trzeba instalować)
