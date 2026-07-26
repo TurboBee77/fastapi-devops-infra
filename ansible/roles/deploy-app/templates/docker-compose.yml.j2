@@ -1,8 +1,6 @@
-version: '3'
-
 services:
   app:
-    build: .
+    build: ./src
     restart: on-failure
     ports:
       - "8000:8000"

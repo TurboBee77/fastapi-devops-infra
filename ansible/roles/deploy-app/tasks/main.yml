@@ -7,9 +7,8 @@
 - name: Sklonuj/zaktualizuj repozytorium appki
   ansible.builtin.git:
     repo: "{{ app_repo_url }}"
-    dest: "{{ app_dest }}"
+    dest: "{{ app_dest }}/src"
     version: master
-    force: true
 
 - name: Wyrenderuj docker-compose.yml
   ansible.builtin.template:
@@ -18,6 +17,7 @@
     mode: "0600"
 
 - name: Zbuduj obraz i uruchom stack (app + db)
-  ansible.builtin.command:
-    cmd: docker compose up -d --build
-    chdir: "{{ app_dest }}"
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dest }}"
+    build: always
+    state: present
