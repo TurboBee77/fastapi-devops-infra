@@ -1,0 +1,23 @@
+---
+- name: Kopiuj plik dockerfile z repo do miejsca docelowego
+  ansible.builtin.copy:
+    src: files/Dockerfile
+    dest: "{{ jenkins_home }}/Dockerfile"
+
+- name: Zbuduj obraz z podstawowego pliku Dockerfile
+  community.docker.docker_image:
+    name: "{{ jenkins_image_tag }}"
+    source: build
+    build:
+      path: "{{ jenkins_home }}"
+
+- name: Uruchom kontener 
+  community.docker.docker_container:
+    name: jenkins
+    image: "{{ jenkins_image_tag }}"
+    restart_policy: unless-stopped
+    ports: "{{ jenkins_port }}:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    state: started
