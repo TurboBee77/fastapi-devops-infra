@@ -1,6 +1,7 @@
 FROM jenkins/jenkins:lts
 
 USER root
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg \
     && install -m 0755 -d /etc/apt/keyrings \
@@ -11,3 +12,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
+
+COPY init-admin.groovy /usr/share/jenkins/ref/init.groovy.d/init-admin.groovy

@@ -28,3 +28,8 @@
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
     state: started
+    env:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      JENKINS_ADMIN_ID: "{{ jenkins_admin_user }}"
+      JENKINS_ADMIN_PASSWORD: "{{ vault_jenkins_admin_password }}"
+
