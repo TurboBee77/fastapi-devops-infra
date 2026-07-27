@@ -5,15 +5,15 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–3 zamknięte, Etap 4 częściowo (deliverable
-niekompletny — patrz `etap-4-podsumowanie.md`).** Terraform stawia
-infrastrukturę, Ansible konfiguruje bazę (Docker + firewall) na
-wszystkich hostach, wdraża aplikację (backend + PostgreSQL w Docker
-Compose) na VM2 i stawia Jenkinsa (w kontenerze, z pominiętym setup
-wizardem i automatycznie tworzonym kontem admina) na VM1 — ale
-credentiale w Jenkinsie (SSH do VM2, Docker Hub), wymagane w deliverable
-Etapu 4, nie są jeszcze skonfigurowane. Monitoring i sam pipeline CI/CD
-to kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
+**Stan repo: Etap 0–4 zamknięte.** Terraform stawia infrastrukturę, Ansible
+konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
+(backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa (w
+kontenerze, z pominiętym setup wizardem i automatycznie tworzonym kontem
+admina) na VM1. **Wyjątek, świadomy i udokumentowany:** credentiale w
+Jenkinsie (SSH do VM2, login Docker Hub), wymienione w deliverable Etapu 4,
+są celowo przesunięte do Etapu 5/6, kiedy faktycznie potrzebne — patrz
+`etap-4-podsumowanie.md`. Monitoring i sam pipeline CI/CD to kolejne
+etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
 
 ## Architektura
 
