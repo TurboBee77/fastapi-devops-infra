@@ -27,7 +27,9 @@ flowchart TB
     MON_EIP["Elastic IP"] --- MON
 
     Internet -->|"SSH 22 (ssh_allowed_cidr)"| CI_EIP
+    Internet -->|"UI Jenkinsa 8080"| CI_EIP
     Internet -->|"SSH 22 (ssh_allowed_cidr)"| APP_EIP
+    Internet -->|"API appki 8000"| APP_EIP
     Internet -->|"SSH 22 (ssh_allowed_cidr)"| MON_EIP
 ```
 
@@ -62,6 +64,20 @@ zakresu tego etapu — świadomie odrzucone na rzecz zwiększenia root volume.
   (`source_security_group_id`), a nie szeroki CIDR — dostęp dostanie wtedy tylko konkretna rola,
   nie cały VPC.
 
+## Stan na Etap 4
+
+Zrealizowane rozszerzenia portów (przez zmienną `extra_ingress_ports` modułu, sterowaną
+per rola zmiennymi root modułu `app_extra_ingress_ports`/`ci_extra_ingress_ports` w
+`terraform.tfvars`):
+
+| Rola | Etap | Port | Co udostępnia |
+|---|---|---|---|
+| `app` | Etap 3 (aplikacja) | 8000 | API FastAPI (Docker Compose, `app` service) |
+| `ci` | Etap 4 (Jenkins) | 8080 | UI Jenkinsa (kontener, domyślny port obrazu `jenkins/jenkins`) |
+
+Oba porty otwarte z tego samego źródła co SSH (`ssh_allowed_cidr`, domyślnie `0.0.0.0/0`)
+— zawężenie dotyczy więc całego ruchu przychodzącego do danej instancji, nie tylko SSH.
+
 ## Planowane rozszerzenia (kolejne etapy)
 
 Moduł `ec2-instance` przyjmuje zmienną `extra_ingress_ports` (lista dodatkowych portów TCP)
@@ -70,8 +86,6 @@ wywołaniu w `terraform/main.tf`. Konkretne porty zostaną dopisane wraz z odpow
 
 | Rola | Etap | Planowany dodatkowy port |
 |---|---|---|
-| `ci` | Etap 4 (Jenkins) | port UI Jenkinsa (do ustalenia przy konfiguracji kontenera) |
-| `app` | Etap 3 (aplikacja) | port backendu FastAPI (do ustalenia przy docker-compose) |
 | `monitoring` | Etap 7 (Prometheus + Grafana) | porty Prometheusa i Grafany (do ustalenia przy docker-compose) |
 
 Druga warstwa firewalla (`ufw` na poziomie systemu, rola Ansible z Etapu 2) jest opisana
