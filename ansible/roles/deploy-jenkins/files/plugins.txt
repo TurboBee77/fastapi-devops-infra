@@ -1,0 +1,5 @@
+workflow-aggregator
+git
+github-branch-source
+credentials-binding
+docker-workflow
