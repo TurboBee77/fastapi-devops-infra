@@ -20,6 +20,7 @@ module "ci" {
   instance_type    = var.instance_type
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
+  extra_ingress_ports = var.ci_extra_ingress_ports
 }
 
 module "app" {
@@ -29,7 +30,7 @@ module "app" {
   instance_type    = var.instance_type
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
-  extra_ingress_ports = [8000]
+  extra_ingress_ports = var.app_extra_ingress_ports
   root_volume_size = 12 # Docker + Postgres w Docker Compose - domyślne 8 GB jest za mało
 }
 

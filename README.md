@@ -5,27 +5,34 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–3 zamknięte.** Terraform stawia infrastrukturę, Ansible
-konfiguruje bazę (Docker + firewall) na wszystkich hostach i wdraża aplikację
-(backend + PostgreSQL w Docker Compose) na VM2. Jenkins i monitoring to
-kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
+**Stan repo: Etap 0–4 zamknięte.** Terraform stawia infrastrukturę, Ansible
+konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
+(backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa (w
+kontenerze, z pominiętym setup wizardem i automatycznie tworzonym kontem
+admina) na VM1. **Wyjątek, świadomy i udokumentowany:** credentiale w
+Jenkinsie (SSH do VM2, login Docker Hub), wymienione w deliverable Etapu 4,
+są celowo przesunięte do Etapu 5/6, kiedy faktycznie potrzebne — patrz
+`etap-4-podsumowanie.md`. Monitoring i sam pipeline CI/CD to kolejne
+etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
 
 ## Architektura
 
 3 instancje EC2 (Ubuntu 24.04, `t3.micro`), tworzone jednym reużywalnym
 modułem Terraform (`terraform/modules/ec2-instance`), wywołanym trzykrotnie:
 
-| VM | Rola | Docelowo | Elastic IP | Security group |
+| VM | Rola | Co tam działa | Elastic IP | Security group |
 |---|---|---|---|---|
-| VM1 | `ci` | Jenkins | tak | `ci-sg` |
+| VM1 | `ci` | Jenkins (kontener, port 8080) | tak | `ci-sg` |
 | VM2 | `app` | Backend + PostgreSQL (Docker Compose) | tak | `app-sg` |
-| VM3 | `monitoring` | Prometheus + Grafana (Docker Compose) | tak | `monitoring-sg` |
+| VM3 | `monitoring` | Prometheus + Grafana (Docker Compose) — Etap 7 | tak | `monitoring-sg` |
 
 Sieć: domyślne VPC konta AWS, region `eu-central-1`. Każda instancja ma
 własny Elastic IP (adres przetrwa `terraform destroy`→`apply`) i własny
 security group. Każdy zaczyna z portem 22 (SSH); `app-sg` ma dodatkowo
-otwarty port 8000 (API aplikacji, przez zmienną `extra_ingress_ports`
-modułu `ec2-instance`) — patrz [`docs/network-architecture.md`](docs/network-architecture.md)
+otwarty port 8000 (API aplikacji), `ci-sg` port 8080 (UI Jenkinsa) — oba
+przez zmienną `extra_ingress_ports` modułu `ec2-instance`, sterowaną
+zmiennymi root modułu `app_extra_ingress_ports`/`ci_extra_ingress_ports`
+w `terraform.tfvars` — patrz [`docs/network-architecture.md`](docs/network-architecture.md)
 po diagram i plan dalszych rozszerzeń portów.
 
 Na poziomie systemu operacyjnego druga warstwa firewalla to `ufw` (rola
@@ -56,6 +63,28 @@ działa natywnie na Windows jako control node):
   `SECRET_KEY`) są zaszyfrowane w `ansible/roles/deploy-app/vars/main.yml`.
   Playbook poprosi o to hasło interaktywnie (`--ask-vault-pass`) — nie jest
   ono nigdzie w repo, musisz je znać/mieć zapisane osobno (menedżer haseł).
+
+  **Zakładasz repo od zera (świeży klon, nowy Vault)?** Zaszyfrowany
+  `vars/main.yml` jest wprawdzie w repo, ale bez znajomości hasła Vaulta
+  nikt poza autorem go nie odszyfruje. Żeby założyć własny, użyj wzorca
+  `vars/main.yml.example` (jawny, pokazuje tylko oczekiwane nazwy zmiennych):
+  ```bash
+  cp ansible/roles/deploy-app/vars/main.yml.example \
+     ansible/roles/deploy-app/vars/main.yml
+  # wpisz prawdziwe wartości zamiast "changeme", potem zaszyfruj:
+  ansible-vault encrypt ansible/roles/deploy-app/vars/main.yml
+  ```
+  Ansible zapyta o nowe hasło do Vaulta — to hasło (nie jego zawartość)
+  musisz zapamiętać/zapisać osobno, będzie potrzebne przy każdym
+  `--ask-vault-pass`. Edycja już zaszyfrowanego pliku później:
+  `ansible-vault edit ansible/roles/deploy-app/vars/main.yml` (poprosi
+  o hasło, otworzy odszyfrowaną treść w `$EDITOR`, zaszyfruje z powrotem
+  przy zapisie).
+
+  Ten sam mechanizm (i to samo hasło do Vaulta) dotyczy drugiego pliku:
+  `ansible/roles/deploy-jenkins/vars/main.yml` (hasło konta admina
+  Jenkinsa) — załóż go analogicznie z `vars/main.yml.example` w tym samym
+  katalogu.
 - **Python 3 + PyYAML** na control node — potrzebne do
   `ansible/scripts/generate_inventory.py` (PyYAML jest i tak zależnością
   samego Ansible, zwykle nic dodatkowego nie trzeba instalować)
@@ -94,13 +123,17 @@ python3 scripts/generate_inventory.py
 ansible-galaxy collection install community.general
 ansible-galaxy collection install -r requirements.yml
 
-# 4. Konfiguracja bazowa hostów (Docker + ufw) i deploy aplikacji na VM2
-ansible-playbook --syntax-check site.yml   # opcjonalny szybki filtr
+# 4. Konfiguracja bazowa hostów (Docker + ufw), deploy aplikacji na VM2
+#    i Jenkinsa na VM1
+ansible-playbook --syntax-check --ask-vault-pass site.yml   # opcjonalny szybki filtr
 ansible-playbook site.yml --ask-vault-pass
 ```
 
 Playbook jest idempotentny — powtórne uruchomienie na już skonfigurowanych
-hostach nie zgłasza zmian (`changed=0`), łącznie z rolą `deploy-app`.
+hostach nie zgłasza zmian (`changed=0`), łącznie z rolami `deploy-app` i
+`deploy-jenkins`. Uwaga: `--syntax-check` też wymaga `--ask-vault-pass` —
+Ansible ładuje (i próbuje odszyfrować) `vars` ról już przy budowaniu
+struktury playbooka, zanim cokolwiek faktycznie wykona.
 
 Weryfikacja ad-hoc (opcjonalnie):
 ```bash
@@ -109,7 +142,15 @@ ansible all -m ansible.builtin.command -a "ufw status verbose"
 
 # appka odpowiada z zewnątrz? (adres z: terraform output app_public_ip)
 curl http://<Elastic-IP-app>:8000/docs
+
+# Jenkins wstał? (adres z: terraform output ci_public_ip)
+curl -I http://<Elastic-IP-ci>:8080
 ```
+
+Pierwsze logowanie do Jenkinsa: `http://<Elastic-IP-ci>:8080`, loginem i
+hasłem z `ansible/roles/deploy-jenkins/vars/main.yml` (setup wizard jest
+pominięty, konto administratora tworzy się automatycznie przy starcie
+kontenera — patrz `etap-4-podsumowanie.md`).
 
 ## Sprzątanie (Free Tier)
 
@@ -142,9 +183,12 @@ fastapi-devops-infra/
 │   ├── scripts/generate_inventory.py
 │   ├── roles/
 │   │   ├── docker/, ufw/       (wspólne, wszystkie VM)
-│   │   └── deploy-app/         (specyficzna dla VM2: backend + PostgreSQL)
+│   │   ├── deploy-app/         (specyficzna dla VM2: backend + PostgreSQL)
+│   │   │   ├── defaults/, vars/main.yml (zaszyfrowany Vault)
+│   │   │   └── templates/docker-compose.yml.j2
+│   │   └── deploy-jenkins/     (specyficzna dla VM1: Jenkins w kontenerze)
 │   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault)
-│   │       └── templates/docker-compose.yml.j2
+│   │       └── files/Dockerfile, init-admin.groovy
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
@@ -159,7 +203,11 @@ Konwencje branchy i commitów (Conventional Commits) — patrz
 Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
-- Role Ansible `deploy-jenkins` (VM1) i `deploy-monitoring` (VM3) — Etap 4, 7
+- Rola Ansible `deploy-monitoring` (VM3) — Etap 7
+- Credentiale w Jenkinsie (SSH do VM2, login Docker Hub) — konfigurowane
+  na razie ręcznie przez UI (Manage Jenkins → Credentials), automatyzacja
+  odłożona do Etapu 5/6, kiedy faktycznie potrzebne — patrz
+  `etap-4-podsumowanie.md`
 - Obraz appki buduje się **lokalnie na VM2** z klonowanego repo (`build: ./src`
   w compose) — Docker Hub (publikacja i `docker compose pull` zamiast
   lokalnego builda) to dopiero Etap 5, wykona to Jenkins
@@ -182,3 +230,14 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
   i `SECRET_KEY` po odszyfrowaniu Vaulta) — ręczne komendy `docker compose`
   na tej maszynie wymagają `sudo`, zwykły użytkownik `ubuntu` nie odczyta
   pliku bezpośrednio
+- Kontener Jenkinsa na VM1 ma zamontowany `/var/run/docker.sock` (potrzebne
+  do budowania obrazów appki z poziomu pipeline'u w Etapie 5/6) — to
+  świadomy kompromis bezpieczeństwa: kto ma dostęp do tego socketu, ma
+  efektywnie uprawnienia roota na VM1 (Docker-outside-of-Docker, nie
+  izolowany demon zagnieżdżony). Szczegóły uzasadnienia w
+  `etap-4-podsumowanie.md`
+- Obraz Jenkinsa (z doinstalowanym `docker-ce-cli`) buduje się **lokalnie
+  na VM1** przy każdym `ansible-playbook`, analogicznie do appki na VM2 —
+  koszt: kilka minut na `t3.micro` przy każdym `terraform destroy`→`apply`,
+  bo nic nie jest publikowane na Docker Hub (świadoma decyzja, patrz
+  `etap-4-podsumowanie.md`)

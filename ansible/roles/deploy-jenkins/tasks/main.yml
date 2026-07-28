@@ -1,0 +1,41 @@
+---
+- name: Stworz folder docelowy dla plikow jenkins
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}"
+    state: directory
+    mode: "0744"
+
+- name: Kopiuj plik dockerfile z repo do miejsca docelowego
+  ansible.builtin.copy:
+    src: files/Dockerfile
+    dest: "{{ jenkins_home }}/Dockerfile"
+
+- name: Kopiuj skrypt init-admin.groovy do kontekstu budowania
+  ansible.builtin.copy:
+    src: files/init-admin.groovy
+    dest: "{{ jenkins_home }}/init-admin.groovy"
+
+
+- name: Zbuduj obraz z podstawowego pliku Dockerfile
+  community.docker.docker_image:
+    name: "{{ jenkins_image_tag }}"
+    source: build
+    build:
+      path: "{{ jenkins_home }}"
+
+- name: Uruchom kontener 
+  community.docker.docker_container:
+    name: jenkins
+    image: "{{ jenkins_image_tag }}"
+    restart_policy: unless-stopped
+    ports: 
+      - "{{ jenkins_port }}:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    state: started
+    env:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      JENKINS_ADMIN_ID: "{{ jenkins_admin_user }}"
+      JENKINS_ADMIN_PASSWORD: "{{ vault_jenkins_admin_password }}"
+
