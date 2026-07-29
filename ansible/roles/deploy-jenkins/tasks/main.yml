@@ -15,11 +15,16 @@
     src: files/init-admin.groovy
     dest: "{{ jenkins_home }}/init-admin.groovy"
 
+- name: Kopiuj plik zawierający pluginy
+  ansible.builtin.copy:
+    src: files/plugins.txt
+    dest: "{{ jenkins_home }}/plugins.txt"
 
 - name: Zbuduj obraz z podstawowego pliku Dockerfile
   community.docker.docker_image:
     name: "{{ jenkins_image_tag }}"
     source: build
+    force_source: true
     build:
       path: "{{ jenkins_home }}"
 
