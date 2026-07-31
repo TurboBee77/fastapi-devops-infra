@@ -1,1 +1,4 @@
 vault_jenkins_admin_password: "wpisz-swoje-haslo"
+vault_jenkins_git_token: "token git"
+vault_jenkins_dockerhub_token: "dockerhub token"
+vault_ssh_cd_key: "klucz ssh do oblugi node"

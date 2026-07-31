@@ -1,1 +1,6 @@
 ufw_allowed_ports: [8080]
+jenkins_secrets:
+  admin_password: "{{ vault_jenkins_admin_password }}"
+  git_token: "{{ vault_git_token }}"
+  dockerhub_password: "{{ vault_dockerhub_password }}"
+  ssh_cd_key: "{{ vault_ssh_cd_key }}"
