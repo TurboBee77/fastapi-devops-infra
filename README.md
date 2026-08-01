@@ -5,20 +5,33 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–4 zamknięte.** Terraform stawia infrastrukturę, Ansible
+**Stan repo: Etap 0–5 zamknięte.** Terraform stawia infrastrukturę, Ansible
 konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
 (backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa (w
-kontenerze, z pominiętym setup wizardem i automatycznie tworzonym kontem
-admina) na VM1. **Wyjątek, świadomy i udokumentowany:** credentiale w
-Jenkinsie (SSH do VM2, login Docker Hub), wymienione w deliverable Etapu 4,
-są celowo przesunięte do Etapu 5/6, kiedy faktycznie potrzebne — patrz
-`etap-4-podsumowanie.md`. Monitoring i sam pipeline CI/CD to kolejne
-etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
+kontenerze, z pominiętym setup wizardem, automatycznie tworzonym kontem
+admina i zainstalowanymi pluginami) na VM1. Jenkinsfile w forku appki
+(Multibranch Pipeline) automatycznie buduje obraz, uruchamia testy pytest na
+efemerycznej bazie i publikuje obraz na Docker Hub przy każdym pushu.
+**Wyjątek, świadomy i udokumentowany:** credentiale w Jenkinsie (GitHub PAT
+×2, Docker Hub) są konfigurowane **ręcznie przez UI** i nie przetrwają
+pełnego `terraform destroy`→`apply` — patrz
+[Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate),
+`etap-5-podsumowanie.md`. SSH do VM2 (Etap 6) i monitoring (Etap 7) to
+kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
 
 ## Architektura
 
-3 instancje EC2 (Ubuntu 24.04, `t3.micro`), tworzone jednym reużywalnym
+3 instancje EC2 (Ubuntu 24.04, `t3.small`), tworzone jednym reużywalnym
 modułem Terraform (`terraform/modules/ec2-instance`), wywołanym trzykrotnie:
+`t3.micro` (1GB RAM) okazał się za mały dla `ci` pod obciążeniem pipeline'u
+CI (JVM Jenkinsa + demon Dockera + kontenery testowe + build obrazu
+jednocześnie — instancja stawała się nieresponsywna, prawdopodobnie OOM,
+patrz `etap-5-podsumowanie.md`); podbite do `t3.small` dla **wszystkich
+trzech** VM przez wspólną zmienną `var.instance_type` (nie tylko `ci`,
+świadomie, dla prostoty). `t3.small` pokazuje się w konsoli AWS jako "Free
+tier eligible" dla tego konta — zweryfikuj to jednak samodzielnie przez
+**Billing → Free Tier**, bo to inny/szerszy model niż klasyczny
+"750h/mies. tylko t2/t3.micro".
 
 | VM | Rola | Co tam działa | Elastic IP | Security group |
 |---|---|---|---|---|
@@ -149,8 +162,47 @@ curl -I http://<Elastic-IP-ci>:8080
 
 Pierwsze logowanie do Jenkinsa: `http://<Elastic-IP-ci>:8080`, loginem i
 hasłem z `ansible/roles/deploy-jenkins/vars/main.yml` (setup wizard jest
-pominięty, konto administratora tworzy się automatycznie przy starcie
-kontenera — patrz `etap-4-podsumowanie.md`).
+pominięty, konto administratora i pluginy tworzą/instalują się automatycznie
+przy starcie kontenera — patrz `etap-4-podsumowanie.md`, `etap-5-podsumowanie.md`).
+
+## Konfiguracja Jenkinsa po każdym pełnym recreate
+
+**To NIE jest zautomatyzowane.** Konto admina i pluginy Jenkinsa wracają
+same (zaszyte w obrazie/`init.groovy.d`) — ale nazwany wolumen `jenkins_home`
+ginie razem z instancją przy pełnym `terraform destroy`→`apply`, więc
+credentiale i konfiguracja poniższa muszą zostać wpisane ręcznie od nowa,
+**zanim** pipeline CI zadziała:
+
+1. **GitHub Personal Access Token** (fine-grained, na GitHubie: Settings →
+   Developer settings → Personal access tokens) — ogranicz do repo forka
+   appki ("Only select repositories"), scope: `Contents: Read-only` +
+   `Webhooks: Read and write`
+2. W Jenkinsie: **Manage Jenkins → Credentials → System → Global
+   credentials → Add Credentials**, dwukrotnie z tym samym tokenem:
+   - Kind **Secret text** (token, bez username) — id np. `github-pat-secret`
+   - Kind **Username with password** (login GitHub + token jako hasło) —
+     id np. `github-pat`
+3. **Manage Jenkins → System → GitHub → Add GitHub Server** — Credentials:
+   credential typu *Secret text* (krok 2, wariant pierwszy — to jedyny typ,
+   który się tu pojawia w dropdownie, mimo że *Username with password*
+   istnieje poprawnie w magazynie), zaznacz **Manage hooks**, kliknij
+   **Test connection**
+4. **New Item → Multibranch Pipeline** (np. `fastapi-app-ci`) → Branch
+   Sources → Add source → GitHub → Credentials: credential typu *Username
+   with password* (krok 2, wariant drugi) → Repository HTTPS URL: URL forka
+   appki → Build Configuration: Mode *by Jenkinsfile*, Script Path:
+   `Jenkinsfile` → Save
+5. **Docker Hub credential** — Add Credentials, Kind *Username with
+   password*: username to prawdziwy login **Docker Hub** (sprawdź na
+   hub.docker.com — bywa inny niż login GitHub!), hasło to **Access Token**
+   z uprawnieniem *Read & Write* (Account Settings → Security → New Access
+   Token na Docker Hubie, nie prawdziwe hasło konta), id musi się dokładnie
+   zgadzać z `DOCKERHUB_CREDENTIALS` w `Jenkinsfile` forka appki
+   (`dockerhub-credentials`)
+
+Dopiero po tych 5 krokach push na dowolny branch forka appki automatycznie
+odpali pipeline. Szczegóły uzasadnienia (dlaczego GitHub Server wymaga akurat
+*Secret text*, dlaczego to nie jest zautomatyzowane) — `etap-5-podsumowanie.md`.
 
 ## Sprzątanie (Free Tier)
 
@@ -188,7 +240,7 @@ fastapi-devops-infra/
 │   │   │   └── templates/docker-compose.yml.j2
 │   │   └── deploy-jenkins/     (specyficzna dla VM1: Jenkins w kontenerze)
 │   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault)
-│   │       └── files/Dockerfile, init-admin.groovy
+│   │       └── files/Dockerfile, init-admin.groovy, plugins.txt
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
@@ -204,15 +256,19 @@ Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
 - Rola Ansible `deploy-monitoring` (VM3) — Etap 7
-- Credentiale w Jenkinsie (SSH do VM2, login Docker Hub) — konfigurowane
-  na razie ręcznie przez UI (Manage Jenkins → Credentials), automatyzacja
-  odłożona do Etapu 5/6, kiedy faktycznie potrzebne — patrz
-  `etap-4-podsumowanie.md`
-- Obraz appki buduje się **lokalnie na VM2** z klonowanego repo (`build: ./src`
-  w compose) — Docker Hub (publikacja i `docker compose pull` zamiast
-  lokalnego builda) to dopiero Etap 5, wykona to Jenkins
-- Jenkinsfile / pipeline CI-CD — Etap 4–6 (znajdzie się w forku aplikacji,
-  nie w tym repo)
+- **SSH do VM2 w Jenkinsie** — potrzebne dopiero w Etapie 6 (stage `deploy`),
+  nieskonfigurowane
+- Credentiale w Jenkinsie (GitHub PAT ×2, login Docker Hub) — konfigurowane
+  ręcznie przez UI (Manage Jenkins → Credentials), nie przetrwają pełnego
+  recreate — patrz [Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate).
+  Automatyzacja ("Poziom 2") świadomie odłożona — `etap-5-podsumowanie.md`
+- Obraz appki na VM2 nadal buduje się **lokalnie z klonowanego repo**
+  (`build: ./src` w compose roli `deploy-app`) — nie pobiera jeszcze
+  gotowego obrazu z Docker Huba, mimo że Jenkins (Etap 5) już go tam
+  publikuje. Przełączenie `deploy-app` na `image: turbobee/...` + `docker
+  compose pull` zamiast lokalnego builda to dopiero Etap 6 (CD)
+- Warunkowy stage `deploy` w Jenkinsfile (`when { branch 'master' }`) +
+  powiadomienia (webhook) — Etap 6
 - Prometheus/Grafana — Etap 7
 - Terraform state w S3 — backlog, poza rdzeniem obowiązkowym
 
@@ -236,8 +292,26 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
   efektywnie uprawnienia roota na VM1 (Docker-outside-of-Docker, nie
   izolowany demon zagnieżdżony). Szczegóły uzasadnienia w
   `etap-4-podsumowanie.md`
-- Obraz Jenkinsa (z doinstalowanym `docker-ce-cli`) buduje się **lokalnie
-  na VM1** przy każdym `ansible-playbook`, analogicznie do appki na VM2 —
-  koszt: kilka minut na `t3.micro` przy każdym `terraform destroy`→`apply`,
+- Obraz Jenkinsa (z doinstalowanym `docker-ce-cli`/`docker-compose-plugin`)
+  buduje się **lokalnie na VM1** przy każdym `ansible-playbook`, analogicznie
+  do appki na VM2 — koszt: kilka minut przy każdym `terraform destroy`→`apply`,
   bo nic nie jest publikowane na Docker Hub (świadoma decyzja, patrz
   `etap-4-podsumowanie.md`)
+- Kontener Jenkinsa działa jako `root` (nie `USER jenkins`) — świadomy,
+  zaakceptowany kompromis: przełączenie na non-root złamało zapis do
+  istniejącego wolumenu `jenkins_home` (zapisywany po raz pierwszy jako
+  root), naprawa wymagałaby jednorazowego przechownerowania wolumenu, co
+  uznano za niewarte nakładu przy braku wymogu dodatkowego hardeningu w tym
+  projekcie — patrz `etap-5-podsumowanie.md`
+- Anonimowy odczyt UI Jenkinsa był domyślnie włączony
+  (`FullControlOnceLoggedInAuthorizationStrategy` ma `allowAnonymousRead =
+  true` domyślnie) mimo publicznego Elastic IP — zablokowany w
+  `init-admin.groovy` (`setAllowAnonymousRead(false)`) w Etapie 5
+- Status commitów na GitHubie nie aktualizuje się (`403 Resource not
+  accessible by personal access token`) — GitHub PAT używany przez Jenkinsa
+  nie ma scope'u `Commit statuses`/`Checks`; kosmetyczne, nie blokuje
+  pipeline'u, nienaprawione
+- Żaden stage w `Jenkinsfile` nie ma `timeout()` — jednorazowy "zombie"
+  build (proces `sh` zawieszony po wymuszonym restarcie VM w trakcie
+  działania) wymagał ręcznego Abort/Hard kill; zabezpieczenie zaprojektowane,
+  niewdrożone — `etap-5-podsumowanie.md`
