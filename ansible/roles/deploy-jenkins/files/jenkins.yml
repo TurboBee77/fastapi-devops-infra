@@ -5,9 +5,40 @@ jenkins:
     local:
       allowsSignup: false
       users:
-        - id: "{{ jenkins_admin_user }}"
+        - id: "admin"
           password: "${readFile:/run/secrets/admin_password}"
 
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousJobStatusPermission: false
+
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: ssh_cd_key
+              username: ubuntu
+              description: "Klucz SSH do deployu na VM2"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/ssh_cd_key}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "git-token"
+              username: "${GIT_USER_NAME}"
+              password: "${readFile:/run/secrets/git_token}"
+              description: "Username/Password Credentials for git hub"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "dockerhub-credentials"
+              username: "${DOCKERHUB_USERNAME}"
+              password: "${readFile:/run/secrets/dockerhub_token}"
+              description: "Username/Password Credentials for docker hub"
+          - string:
+              scope: GLOBAL
+              id: "git-token-secret"
+              secret: "${readFile:/run/secrets/git_token}"
+              description: "Git token secret for git hub"
