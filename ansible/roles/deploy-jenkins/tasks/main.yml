@@ -56,10 +56,11 @@
     ports: 
       - "{{ jenkins_port }}:8080"
     volumes:
-      - jenkins_home:/var/jenkins_home
+      - jenkins_home:/var/jenkins_home # Named volume for app data
       - /var/run/docker.sock:/var/run/docker.sock
-      - "{{ jenkins_home }}/secrets:/run/secrets:ro"
+      - "{{ jenkins_home }}/secrets:/run/secrets:ro" # bind volume nie ppowinno być też w var ? 
     state: started
     env:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      CASC_JENKINS_CONFIG: /run/secrets/jenkins.yaml
 

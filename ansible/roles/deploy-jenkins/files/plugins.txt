@@ -2,4 +2,5 @@ workflow-aggregator
 git
 github-branch-source
 credentials-binding
+credentials
 docker-workflow
