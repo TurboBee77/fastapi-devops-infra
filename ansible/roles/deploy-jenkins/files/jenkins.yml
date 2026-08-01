@@ -42,3 +42,33 @@ credentials:
               id: "git-token-secret"
               secret: "${readFile:/run/secrets/git_token}"
               description: "Git token secret for git hub"
+
+unclassified:
+  gitHubPluginConfig:
+    configs:
+      - name: "github"
+        apiUrl: "https://api.github.com"
+        credentialsId: "git-token-secret"
+        manageHooks: true
+
+jobs:
+  - script: |
+      multibranchPipelineJob('fastapi-app-ci') {
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('fastapi-app')
+                repoOwner('TurboBee77')
+                repository('fastapi-realworld-example-app')
+                credentialsId('git-token')
+              }
+            }
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
+          }
+        }
+      }
