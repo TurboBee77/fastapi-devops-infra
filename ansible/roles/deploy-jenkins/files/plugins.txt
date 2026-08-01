@@ -4,3 +4,6 @@ github-branch-source
 credentials-binding
 credentials
 docker-workflow
+configuration-as-code
+job-dsl
+ssh-credentials
