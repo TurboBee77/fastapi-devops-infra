@@ -10,7 +10,7 @@ jenkins:
 
   authorizationStrategy:
     loggedInUsersCanDoAnything:
-      allowAnonymousJobStatusPermission: false
+      allowAnonymousRead: false
 
 
 credentials:
