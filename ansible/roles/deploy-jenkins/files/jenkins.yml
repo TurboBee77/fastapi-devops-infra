@@ -59,10 +59,13 @@ jobs:
             source {
               github {
                 id('fastapi-app')
-                configuredByUrl(true)
+                repoOwner('TurboBee77')
+                repository('fastapi-realworld-example-app')
                 repositoryUrl('https://github.com/TurboBee77/fastapi-realworld-example-app')
+                configuredByUrl(false)
                 credentialsId('git-token')
               }
+
             }
           }
         }
