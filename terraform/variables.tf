@@ -30,3 +30,15 @@ variable "ci_extra_ingress_ports" {
   description = "Dodatkowe porty akceptowane przez sg dla serwera ci"
   type        = list(number)
 }
+
+variable "ci_root_volume_size" {
+  description = "Rozmiar wolumenu root dla serwera ci (w GB)"
+  type        = number
+  default     = 8
+}
+
+variable "app_root_volume_size" {
+  description = "Rozmiar wolumenu root dla serwera aplikacji (w GB)"
+  type        = number
+  default     = 8
+}

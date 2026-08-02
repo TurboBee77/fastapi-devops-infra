@@ -21,6 +21,7 @@ module "ci" {
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
   extra_ingress_ports = var.ci_extra_ingress_ports
+  root_volume_size = var.ci_root_volume_size # Docker + Jenkins w Docker Compose - domyślne 8 GB jest za mało
 }
 
 module "app" {
@@ -31,7 +32,7 @@ module "app" {
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
   extra_ingress_ports = var.app_extra_ingress_ports
-  root_volume_size = 12 # Docker + Postgres w Docker Compose - domyślne 8 GB jest za mało
+  root_volume_size = var.app_root_volume_size # Docker + Postgres w Docker Compose - domyślne 8 GB jest za mało
 }
 
 module "monitoring" {
