@@ -42,14 +42,28 @@ credentials:
               id: "git-token-secret"
               secret: "${readFile:/run/secrets/git_token}"
               description: "Git token secret for git hub"
+          - string:
+              scope: GLOBAL
+              id: "ansible-vault-password"
+              secret: "${readFile:/run/secrets/ansible_vault_password}"
+              description: "Haslo do Ansible Vault (deploy-app/vars/main.yml na VM2)"
+          - string:
+              scope: GLOBAL
+              id: "discord-webhook-url"
+              secret: "${readFile:/run/secrets/discord_webhook_url}"
+              description: "Discord webhook - powiadomienia o wyniku pipeline'u"
 
 unclassified:
+  location:
+    url: "${JENKINS_PUBLIC_URL}"
   gitHubPluginConfig:
     configs:
       - name: "github"
         apiUrl: "https://api.github.com"
         credentialsId: "git-token-secret"
         manageHooks: true
+
+
 
 jobs:
   - script: |

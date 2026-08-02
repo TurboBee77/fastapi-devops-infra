@@ -61,4 +61,4 @@
       GIT_USER_NAME: "{{ git_user_name }}"
       DOCKERHUB_USERNAME: "{{ dockerhub_username }}"
       CASC_JENKINS_CONFIG: /run/secrets/jenkins.yml
-
+      JENKINS_PUBLIC_URL: "http://{{ ansible_host }}:{{ jenkins_port }}/"
