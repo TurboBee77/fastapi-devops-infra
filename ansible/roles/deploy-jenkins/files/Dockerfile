@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/* \
-    && ansible-galaxy collection install community.docker ansible.posix
+    && ansible-galaxy collection install community.docker ansible.posix community.general
 
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
 
