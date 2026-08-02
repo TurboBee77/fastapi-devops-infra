@@ -5,19 +5,22 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–5 zamknięte.** Terraform stawia infrastrukturę, Ansible
-konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
-(backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa (w
-kontenerze, z pominiętym setup wizardem, automatycznie tworzonym kontem
-admina i zainstalowanymi pluginami) na VM1. Jenkinsfile w forku appki
-(Multibranch Pipeline) automatycznie buduje obraz, uruchamia testy pytest na
-efemerycznej bazie i publikuje obraz na Docker Hub przy każdym pushu.
-**Wyjątek, świadomy i udokumentowany:** credentiale w Jenkinsie (GitHub PAT
-×2, Docker Hub) są konfigurowane **ręcznie przez UI** i nie przetrwają
-pełnego `terraform destroy`→`apply` — patrz
-[Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate),
-`etap-5-podsumowanie.md`. SSH do VM2 (Etap 6) i monitoring (Etap 7) to
-kolejne etapy — patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa).
+**Stan repo: Etap 0–5 zamknięte, Etap 6 w toku.** Terraform stawia
+infrastrukturę, Ansible konfiguruje bazę (Docker + firewall) na wszystkich
+hostach, wdraża aplikację (backend + PostgreSQL w Docker Compose) na VM2 i
+stawia Jenkinsa na VM1 w pełni skonfigurowanego przez **Jenkins
+Configuration as Code** (JCasC, `ansible/roles/deploy-jenkins/files/jenkins.yml`):
+setup wizard pominięty, konto admina, wszystkie credentiale (SSH do VM2,
+GitHub PAT ×2, Docker Hub), GitHub Server config i sam Multibranch Pipeline
+job (`fastapi-app-ci`) tworzone automatycznie przy starcie kontenera —
+sekrety czytane z plików dostarczanych przez Ansible Vault (`/run/secrets/`),
+nie z surowych zmiennych środowiskowych. Jenkinsfile w forku appki
+automatycznie buduje obraz, uruchamia testy pytest na efemerycznej bazie i
+publikuje obraz na Docker Hub przy każdym pushu.
+**Wyjątek, świadomy i udokumentowany:** klucz SSH do VM2 jest na razie
+placeholderem (`vault_jenkins_ssh_cd_key`) — prawdziwy klucz i sam stage
+`deploy` w Jenkinsfile to dopiero domykany Etap 6, patrz
+[Co jeszcze nie działa](#co-jeszcze-nie-działa). Monitoring to Etap 7.
 
 ## Architektura
 
@@ -95,9 +98,13 @@ działa natywnie na Windows jako control node):
   przy zapisie).
 
   Ten sam mechanizm (i to samo hasło do Vaulta) dotyczy drugiego pliku:
-  `ansible/roles/deploy-jenkins/vars/main.yml` (hasło konta admina
-  Jenkinsa) — załóż go analogicznie z `vars/main.yml.example` w tym samym
-  katalogu.
+  `ansible/roles/deploy-jenkins/vars/main.yml` — załóż go analogicznie z
+  `vars/main.yml.example` w tym samym katalogu. Niesie cztery zmienne,
+  wszystkie wstrzykiwane do JCasC jako pliki w `/run/secrets/` (nie env
+  vars): `vault_jenkins_admin_password`, `vault_jenkins_git_token`
+  (GitHub PAT), `vault_jenkins_dockerhub_token` (Docker Hub Access Token),
+  `vault_jenkins_ssh_cd_key` (klucz SSH do VM2 — **na dziś placeholder**,
+  patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa)).
 - **Python 3 + PyYAML** na control node — potrzebne do
   `ansible/scripts/generate_inventory.py` (PyYAML jest i tak zależnością
   samego Ansible, zwykle nic dodatkowego nie trzeba instalować)
@@ -167,42 +174,35 @@ przy starcie kontenera — patrz `etap-4-podsumowanie.md`, `etap-5-podsumowanie.
 
 ## Konfiguracja Jenkinsa po każdym pełnym recreate
 
-**To NIE jest zautomatyzowane.** Konto admina i pluginy Jenkinsa wracają
-same (zaszyte w obrazie/`init.groovy.d`) — ale nazwany wolumen `jenkins_home`
-ginie razem z instancją przy pełnym `terraform destroy`→`apply`, więc
-credentiale i konfiguracja poniższa muszą zostać wpisane ręcznie od nowa,
-**zanim** pipeline CI zadziała:
+**Od Etapu 6 w większości zautomatyzowane przez JCasC**
+(`ansible/roles/deploy-jenkins/files/jenkins.yml`, plugin
+`configuration-as-code`). Przy starcie kontenera, bez ręcznego klikania,
+powstają: konto admina, wszystkie credentiale (GitHub PAT jako *Secret
+text* i jako *Username/password*, Docker Hub, SSH do VM2), GitHub Server
+config (**Manage hooks** włączone) i sam Multibranch Pipeline job
+(`fastapi-app-ci`, Script Path `Jenkinsfile`) — zdefiniowany przez skrypt
+Job DSL osadzony w `jenkins.yml` (sekcja `jobs:`, wymaga pluginu `job-dsl`).
 
-1. **GitHub Personal Access Token** (fine-grained, na GitHubie: Settings →
-   Developer settings → Personal access tokens) — ogranicz do repo forka
-   appki ("Only select repositories"), scope: `Contents: Read-only` +
-   `Webhooks: Read and write`
-2. W Jenkinsie: **Manage Jenkins → Credentials → System → Global
-   credentials → Add Credentials**, dwukrotnie z tym samym tokenem:
-   - Kind **Secret text** (token, bez username) — id np. `github-pat-secret`
-   - Kind **Username with password** (login GitHub + token jako hasło) —
-     id np. `github-pat`
-3. **Manage Jenkins → System → GitHub → Add GitHub Server** — Credentials:
-   credential typu *Secret text* (krok 2, wariant pierwszy — to jedyny typ,
-   który się tu pojawia w dropdownie, mimo że *Username with password*
-   istnieje poprawnie w magazynie), zaznacz **Manage hooks**, kliknij
-   **Test connection**
-4. **New Item → Multibranch Pipeline** (np. `fastapi-app-ci`) → Branch
-   Sources → Add source → GitHub → Credentials: credential typu *Username
-   with password* (krok 2, wariant drugi) → Repository HTTPS URL: URL forka
-   appki → Build Configuration: Mode *by Jenkinsfile*, Script Path:
-   `Jenkinsfile` → Save
-5. **Docker Hub credential** — Add Credentials, Kind *Username with
-   password*: username to prawdziwy login **Docker Hub** (sprawdź na
-   hub.docker.com — bywa inny niż login GitHub!), hasło to **Access Token**
-   z uprawnieniem *Read & Write* (Account Settings → Security → New Access
-   Token na Docker Hubie, nie prawdziwe hasło konta), id musi się dokładnie
-   zgadzać z `DOCKERHUB_CREDENTIALS` w `Jenkinsfile` forka appki
-   (`dockerhub-credentials`)
+Żeby to faktycznie zadziałało, musisz wcześniej założyć/wypełnić
+`ansible/roles/deploy-jenkins/vars/main.yml` (patrz
+[Wymagania wstępne](#wymagania-wstępne)) prawdziwymi wartościami GitHub PAT
+i Docker Hub Access Tokena — bez nich Jenkins i tak wstanie, ale
+credentiale będą puste/nieużyteczne.
 
-Dopiero po tych 5 krokach push na dowolny branch forka appki automatycznie
-odpali pipeline. Szczegóły uzasadnienia (dlaczego GitHub Server wymaga akurat
-*Secret text*, dlaczego to nie jest zautomatyzowane) — `etap-5-podsumowanie.md`.
+**Nadal ręczne:**
+- Klucz SSH do VM2 (`vault_jenkins_ssh_cd_key`) — dziś placeholder, nie
+  prawdziwy klucz (Etap 6, patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa))
+- Jeśli zmieniasz coś w sekcji `jobs:`/`traits` w `jenkins.yml` na
+  **już istniejącym** środowisku (nie świeżym `terraform apply`) — Job DSL
+  nie odświeża listy `traits` na już istniejącym jobie. Usuń ręcznie job
+  `fastapi-app-ci` w UI przed ponownym uruchomieniem playbooka/restartem
+  kontenera, inaczej stara konfiguracja (np. brak "Discover branches")
+  zostanie. Na świeżej instancji (job jeszcze nie istnieje) problem nie
+  występuje — JCasC tworzy go poprawnie za pierwszym razem.
+
+Szczegóły uzasadnienia (dlaczego GitHub Server wymaga akurat *Secret
+text*, historia debugowania JCasC) — `etap-5-podsumowanie.md`,
+`etap-6-podsumowanie.md`.
 
 ## Sprzątanie (Free Tier)
 
@@ -240,7 +240,7 @@ fastapi-devops-infra/
 │   │   │   └── templates/docker-compose.yml.j2
 │   │   └── deploy-jenkins/     (specyficzna dla VM1: Jenkins w kontenerze)
 │   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault)
-│   │       └── files/Dockerfile, init-admin.groovy, plugins.txt
+│   │       └── files/Dockerfile, jenkins.yml (JCasC), plugins.txt
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
@@ -256,12 +256,10 @@ Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
 - Rola Ansible `deploy-monitoring` (VM3) — Etap 7
-- **SSH do VM2 w Jenkinsie** — potrzebne dopiero w Etapie 6 (stage `deploy`),
-  nieskonfigurowane
-- Credentiale w Jenkinsie (GitHub PAT ×2, login Docker Hub) — konfigurowane
-  ręcznie przez UI (Manage Jenkins → Credentials), nie przetrwają pełnego
-  recreate — patrz [Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate).
-  Automatyzacja ("Poziom 2") świadomie odłożona — `etap-5-podsumowanie.md`
+- **SSH do VM2 w Jenkinsie** — credential istnieje (JCasC, `ssh_cd_key`),
+  ale niesie tylko placeholder zamiast prawdziwego klucza prywatnego;
+  decyzja czy reużyć istniejący klucz projektu, czy wygenerować dedykowany
+  tylko do CD, jeszcze niepodjęta
 - Obraz appki na VM2 nadal buduje się **lokalnie z klonowanego repo**
   (`build: ./src` w compose roli `deploy-app`) — nie pobiera jeszcze
   gotowego obrazu z Docker Huba, mimo że Jenkins (Etap 5) już go tam
@@ -305,8 +303,23 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
   projekcie — patrz `etap-5-podsumowanie.md`
 - Anonimowy odczyt UI Jenkinsa był domyślnie włączony
   (`FullControlOnceLoggedInAuthorizationStrategy` ma `allowAnonymousRead =
-  true` domyślnie) mimo publicznego Elastic IP — zablokowany w
-  `init-admin.groovy` (`setAllowAnonymousRead(false)`) w Etapie 5
+  true` domyślnie) mimo publicznego Elastic IP — zablokowany jawnym
+  `allowAnonymousRead: false` w `jenkins.yml` (JCasC, Etap 6; wcześniej
+  w Etapie 5 przez Groovy `init-admin.groovy`, od migracji do JCasC ten
+  plik już nie istnieje)
+- Wersje pluginów w `plugins.txt` **nie są przypięte** (same nazwy, bez
+  `:wersja`) — `jenkins-plugin-cli` przy każdym budowaniu obrazu instaluje
+  "najnowszą kompatybilną" wersję, nie zawsze tę samą co poprzednio.
+  W praktyce uderzyło to przy pracy nad Etapem 6: nowsza wersja
+  `github-branch-source` zmieniła wymagane pola konstruktora
+  `GitHubSCMSource` (Job DSL) między dwoma kolejnymi przebudowami obrazu
+  w tej samej sesji — build nie jest w pełni reprodukowalny w czasie
+- Job DSL (sekcja `jobs:` w `jenkins.yml`) nie odświeża `traits`/
+  `branchSources` na **już istniejącym** Multibranch jobie przy ponownym
+  zastosowaniu JCasC — wymaga ręcznego usunięcia joba przed reapply.
+  Nie występuje przy świeżym `terraform destroy`→`apply` (job jeszcze nie
+  istnieje), tylko przy iteracji nad `jenkins.yml` na już działającym
+  środowisku — patrz [Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate)
 - Status commitów na GitHubie nie aktualizuje się (`403 Resource not
   accessible by personal access token`) — GitHub PAT używany przez Jenkinsa
   nie ma scope'u `Commit statuses`/`Checks`; kosmetyczne, nie blokuje
