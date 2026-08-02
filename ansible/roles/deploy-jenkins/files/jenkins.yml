@@ -64,8 +64,10 @@ jobs:
                 repositoryUrl('https://github.com/TurboBee77/fastapi-realworld-example-app')
                 configuredByUrl(false)
                 credentialsId('git-token')
+                traits { 
+                  gitHubBranchDiscovery { strategyId(1) } 
+                }
               }
-
             }
           }
         }
