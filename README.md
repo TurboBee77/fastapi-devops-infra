@@ -5,22 +5,25 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–5 zamknięte, Etap 6 w toku.** Terraform stawia
-infrastrukturę, Ansible konfiguruje bazę (Docker + firewall) na wszystkich
-hostach, wdraża aplikację (backend + PostgreSQL w Docker Compose) na VM2 i
-stawia Jenkinsa na VM1 w pełni skonfigurowanego przez **Jenkins
-Configuration as Code** (JCasC, `ansible/roles/deploy-jenkins/files/jenkins.yml`):
-setup wizard pominięty, konto admina, wszystkie credentiale (SSH do VM2,
-GitHub PAT ×2, Docker Hub), GitHub Server config i sam Multibranch Pipeline
-job (`fastapi-app-ci`) tworzone automatycznie przy starcie kontenera —
-sekrety czytane z plików dostarczanych przez Ansible Vault (`/run/secrets/`),
-nie z surowych zmiennych środowiskowych. Jenkinsfile w forku appki
-automatycznie buduje obraz, uruchamia testy pytest na efemerycznej bazie i
-publikuje obraz na Docker Hub przy każdym pushu.
-**Wyjątek, świadomy i udokumentowany:** klucz SSH do VM2 jest na razie
-placeholderem (`vault_jenkins_ssh_cd_key`) — prawdziwy klucz i sam stage
-`deploy` w Jenkinsfile to dopiero domykany Etap 6, patrz
-[Co jeszcze nie działa](#co-jeszcze-nie-działa). Monitoring to Etap 7.
+**Stan repo: Etap 0–6 zamknięte.** Terraform stawia infrastrukturę, Ansible
+konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
+(backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa na VM1 w
+pełni skonfigurowanego przez **Jenkins Configuration as Code** (JCasC,
+`ansible/roles/deploy-jenkins/files/jenkins.yml`): setup wizard pominięty,
+konto admina, wszystkie credentiale (SSH do VM2, GitHub PAT ×2, Docker Hub,
+hasło Ansible Vault, webhook Discorda), GitHub Server config i sam
+Multibranch Pipeline job (`fastapi-app-ci`) tworzone automatycznie przy
+starcie kontenera — sekrety czytane z plików dostarczanych przez Ansible
+Vault (`/run/secrets/`), nie z surowych zmiennych środowiskowych.
+Jenkinsfile w forku appki: `Test` (pytest na efemerycznej bazie) →
+`Build & Push` (Docker Hub) → `Deploy` (`when { branch 'master' }` —
+Ansible/SSH aktualizuje appkę na VM2) → `post { success/failure }`
+(powiadomienie na Discord).
+**Konsekwencja:** skoro wszystkie credentiale Jenkinsa żyją teraz w Vault
+na control-node VM (nie w AWS), pełny cykl `terraform destroy` → `apply` →
+`ansible-playbook` **nie wymaga już ręcznej konfiguracji w UI Jenkinsa** —
+patrz [Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate).
+Monitoring (Etap 7) to jedyny brakujący kawałek rdzenia priorytetowego.
 
 ## Architektura
 
@@ -67,12 +70,12 @@ działa natywnie na Windows jako control node):
   `terraform.tfvars` — Terraform jej nie tworzy, musi już istnieć
   (`aws ec2 create-key-pair` albo `aws ec2 import-key-pair`, jeśli masz już
   klucz SSH wygenerowany lokalnie)
-- **Ansible** (`ansible-core`) + kolekcje spoza `ansible-core` (moduł `ufw`
-  i moduł `docker_compose_v2` nie są w nim zawarte), zdeklarowane w
-  `ansible/requirements.yml`:
+- **Ansible** (`ansible-core`) + kolekcje spoza `ansible-core` (moduły `ufw`,
+  `docker_compose_v2`, `authorized_key` nie są w nim zawarte), zdeklarowane w
+  `ansible/requirements.yml` (`community.general`, `community.docker`,
+  `ansible.posix`):
   ```bash
   cd ansible
-  ansible-galaxy collection install community.general
   ansible-galaxy collection install -r requirements.yml
   ```
 - **Hasło do Ansible Vault** — sekrety appki (hasło do Postgresa,
@@ -99,12 +102,17 @@ działa natywnie na Windows jako control node):
 
   Ten sam mechanizm (i to samo hasło do Vaulta) dotyczy drugiego pliku:
   `ansible/roles/deploy-jenkins/vars/main.yml` — załóż go analogicznie z
-  `vars/main.yml.example` w tym samym katalogu. Niesie cztery zmienne,
+  `vars/main.yml.example` w tym samym katalogu. Niesie sześć zmiennych,
   wszystkie wstrzykiwane do JCasC jako pliki w `/run/secrets/` (nie env
   vars): `vault_jenkins_admin_password`, `vault_jenkins_git_token`
   (GitHub PAT), `vault_jenkins_dockerhub_token` (Docker Hub Access Token),
-  `vault_jenkins_ssh_cd_key` (klucz SSH do VM2 — **na dziś placeholder**,
-  patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa)).
+  `vault_jenkins_ssh_cd_key` (prywatny klucz SSH dedykowany do CD na VM2 —
+  wygeneruj osobno, `ssh-keygen -t ed25519 -N ""`, publiczną część dopisuje
+  automatycznie rola `deploy-app`), `vault_ansible_vault_password` (to samo
+  hasło, którym szyfrujesz ten plik — Jenkins potrzebuje go do
+  nieinteraktywnego `--vault-password-file` w stage'u `Deploy`),
+  `vault_discord_webhook_url` (Server Settings → Integrations → Webhooks
+  na Discordzie).
 - **Python 3 + PyYAML** na control node — potrzebne do
   `ansible/scripts/generate_inventory.py` (PyYAML jest i tak zależnością
   samego Ansible, zwykle nic dodatkowego nie trzeba instalować)
@@ -125,7 +133,11 @@ cp terraform.tfvars.example terraform.tfvars
 Edytuj `terraform.tfvars`: ustaw `key_name` na nazwę swojej pary kluczy w
 AWS. Domyślnie `ssh_allowed_cidr = "0.0.0.0/0"` (SSH dostępny z dowolnego
 IP) — zawęź do własnego adresu, jeśli chcesz ograniczyć dostęp.
-`terraform.tfvars` jest w `.gitignore` — nie trafia do repo.
+`ci_root_volume_size`/`app_root_volume_size` mają domyślnie `8` (GB) —
+za mało dla `ci`/`app` pod pełnym obciążeniem (Docker + build cache appki /
+Docker + Postgres, patrz `TODO.md` i `etap-6-podsumowanie.md`), ustaw je
+jawnie (np. `16`/`12`), inaczej `apply` cicho zmniejszy wolumen do domyślnej
+wartości. `terraform.tfvars` jest w `.gitignore` — nie trafia do repo.
 
 ## Pełna sekwencja komend od zera
 
@@ -140,7 +152,6 @@ cd ../ansible
 python3 scripts/generate_inventory.py
 
 # 3. Kolekcje Ansible spoza ansible-core (jednorazowo per control node)
-ansible-galaxy collection install community.general
 ansible-galaxy collection install -r requirements.yml
 
 # 4. Konfiguracja bazowa hostów (Docker + ufw), deploy aplikacji na VM2
@@ -174,35 +185,37 @@ przy starcie kontenera — patrz `etap-4-podsumowanie.md`, `etap-5-podsumowanie.
 
 ## Konfiguracja Jenkinsa po każdym pełnym recreate
 
-**Od Etapu 6 w większości zautomatyzowane przez JCasC**
-(`ansible/roles/deploy-jenkins/files/jenkins.yml`, plugin
-`configuration-as-code`). Przy starcie kontenera, bez ręcznego klikania,
-powstają: konto admina, wszystkie credentiale (GitHub PAT jako *Secret
-text* i jako *Username/password*, Docker Hub, SSH do VM2), GitHub Server
-config (**Manage hooks** włączone) i sam Multibranch Pipeline job
+**Od Etapu 6 w pełni zautomatyzowane przez JCasC** — zweryfikowane end-to-end
+po pełnym `terraform destroy`→`apply` od zera, bez ręcznego klikania w UI.
+Przy starcie kontenera automatycznie powstają: konto admina, wszystkie
+credentiale (GitHub PAT jako *Secret text* i jako *Username/password*,
+Docker Hub, SSH do VM2, hasło Ansible Vault, webhook Discorda), GitHub
+Server config (**Manage hooks** włączone) i sam Multibranch Pipeline job
 (`fastapi-app-ci`, Script Path `Jenkinsfile`) — zdefiniowany przez skrypt
 Job DSL osadzony w `jenkins.yml` (sekcja `jobs:`, wymaga pluginu `job-dsl`).
 
-Żeby to faktycznie zadziałało, musisz wcześniej założyć/wypełnić
-`ansible/roles/deploy-jenkins/vars/main.yml` (patrz
-[Wymagania wstępne](#wymagania-wstępne)) prawdziwymi wartościami GitHub PAT
-i Docker Hub Access Tokena — bez nich Jenkins i tak wstanie, ale
-credentiale będą puste/nieużyteczne.
+Warunek: `ansible/roles/deploy-jenkins/vars/main.yml` musi być wcześniej
+założony/wypełniony (patrz [Wymagania wstępne](#wymagania-wstępne)) —
+**ale tylko raz**, nie po każdym recreate. Ten plik żyje lokalnie na
+control-node VM (poza AWS), więc `terraform destroy` go nie rusza; kolejne
+`apply`+`ansible-playbook` odczytują te same, już wpisane wartości.
 
-**Nadal ręczne:**
-- Klucz SSH do VM2 (`vault_jenkins_ssh_cd_key`) — dziś placeholder, nie
-  prawdziwy klucz (Etap 6, patrz [Co jeszcze nie działa](#co-jeszcze-nie-działa))
+**Wciąż warte świadomości (nie blokuje routinowego recreate):**
 - Jeśli zmieniasz coś w sekcji `jobs:`/`traits` w `jenkins.yml` na
-  **już istniejącym** środowisku (nie świeżym `terraform apply`) — Job DSL
-  nie odświeża listy `traits` na już istniejącym jobie. Usuń ręcznie job
+  **już istniejącym** środowisku (edycja `jenkins.yml` + reapply na
+  działającym Jenkinsie, nie świeży `terraform apply`) — Job DSL nie
+  odświeża listy `traits` na już istniejącym jobie. Usuń ręcznie job
   `fastapi-app-ci` w UI przed ponownym uruchomieniem playbooka/restartem
-  kontenera, inaczej stara konfiguracja (np. brak "Discover branches")
-  zostanie. Na świeżej instancji (job jeszcze nie istnieje) problem nie
-  występuje — JCasC tworzy go poprawnie za pierwszym razem.
+  kontenera, inaczej stara konfiguracja zostanie. Na świeżej instancji
+  problem nie występuje — JCasC tworzy job poprawnie za pierwszym razem.
+- `manageHooks: true` tworzy nowy webhook na repo appki, jeśli
+  `JENKINS_PUBLIC_URL` (czyli Elastic IP `ci`) się zmienił — ale **nie
+  usuwa** starych, martwych webhooków z poprzednich cykli. Kosmetyczne
+  sprzątanie ręczne w GitHub → Settings → Webhooks, patrz `TODO.md`.
 
 Szczegóły uzasadnienia (dlaczego GitHub Server wymaga akurat *Secret
-text*, historia debugowania JCasC) — `etap-5-podsumowanie.md`,
-`etap-6-podsumowanie.md`.
+text*, historia debugowania JCasC, mechanizm dostarczania IP VM2 do
+Jenkinsa) — `etap-5-podsumowanie.md`, `etap-6-podsumowanie.md`.
 
 ## Sprzątanie (Free Tier)
 
@@ -244,6 +257,7 @@ fastapi-devops-infra/
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
+├── TODO.md                     (backlog drobnych usprawnień, nie do mylenia z DevOpsProj.md)
 └── README.md
 ```
 
@@ -256,17 +270,6 @@ Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
 - Rola Ansible `deploy-monitoring` (VM3) — Etap 7
-- **SSH do VM2 w Jenkinsie** — credential istnieje (JCasC, `ssh_cd_key`),
-  ale niesie tylko placeholder zamiast prawdziwego klucza prywatnego;
-  decyzja czy reużyć istniejący klucz projektu, czy wygenerować dedykowany
-  tylko do CD, jeszcze niepodjęta
-- Obraz appki na VM2 nadal buduje się **lokalnie z klonowanego repo**
-  (`build: ./src` w compose roli `deploy-app`) — nie pobiera jeszcze
-  gotowego obrazu z Docker Huba, mimo że Jenkins (Etap 5) już go tam
-  publikuje. Przełączenie `deploy-app` na `image: turbobee/...` + `docker
-  compose pull` zamiast lokalnego builda to dopiero Etap 6 (CD)
-- Warunkowy stage `deploy` w Jenkinsfile (`when { branch 'master' }`) +
-  powiadomienia (webhook) — Etap 6
 - Prometheus/Grafana — Etap 7
 - Terraform state w S3 — backlog, poza rdzeniem obowiązkowym
 
@@ -328,3 +331,22 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
   build (proces `sh` zawieszony po wymuszonym restarcie VM w trakcie
   działania) wymagał ręcznego Abort/Hard kill; zabezpieczenie zaprojektowane,
   niewdrożone — `etap-5-podsumowanie.md`
+- **Docker build cache na `ci` rośnie bez ograniczeń** — `docker compose
+  down -v --rmi local` (post always w stage `Test`) czyści tylko finalny
+  obraz testowy, nie build cache BuildKita (warstwy `poetry install` itp.,
+  celowo cache'owane między buildami). Bez okresowego `docker system prune`
+  (cron, patrz `TODO.md`, niewdrożony) to, obok samego rozmiaru wolumenu,
+  główna przyczyna powtarzających się `no space left on device` — szczegóły
+  `etap-6-podsumowanie.md`
+- **Resize EBS przez zmianę `root_volume_size` w Terraform nie rozciąga
+  automatycznie systemu plików**, jeśli AWS zmodyfikuje wolumen in-place
+  (bez wymiany instancji) — trzeba ręcznie `growpart`+`resize2fs` na żywej
+  maszynie. Przy pełnym `terraform destroy`→`apply` problem nie występuje
+  (świeży boot poprawnie formatuje partycję od razu pod docelowy rozmiar)
+- **`docker compose up --build` czasem łapie `No such container` tuż po
+  `Created`** — znany race w ekosystemie Dockera przy containerd image
+  store, zaobserwowany raz po świeżym recreate VM1. Retry zwykle
+  wystarcza; brak systemowej naprawy — `etap-6-podsumowanie.md`
+- Repo appki ma nagromadzone martwe webhooki GitHub z poprzednich cykli
+  `destroy`→`apply` (`manageHooks: true` tworzy nowy przy zmianie IP, nie
+  usuwa starych) — kosmetyczne, do ręcznego sprzątania, patrz `TODO.md`
