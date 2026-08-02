@@ -17,13 +17,13 @@
 
 # ----------------JCasC  config ------------------
 - name: Stwórz folder na sekrety
-  file:
+  ansible.builtin.file:
     path: "{{ jenkins_home }}/secrets"
     state: directory
     mode: "0700"
 
 - name: Kopiuj sekrety do jenkins secrets
-  copy:
+  ansible.builtin.copy:
     dest: "{{ jenkins_home }}/secrets/{{ item.key }}"
     content: "{{ item.value }}"
     mode: "0600"
@@ -35,6 +35,7 @@
     src: files/jenkins.yml
     dest: "{{ jenkins_home }}/secrets/jenkins.yml"
 
+# -----------------Docker build and run ------------------
 - name: Zbuduj obraz z podstawowego pliku Dockerfile
   community.docker.docker_image:
     name: "{{ jenkins_image_tag }}"
