@@ -1,6 +1,6 @@
 services:
   app:
-    build: ./src
+    image: "turbobee/fastapi-realworld-example-app:{{ app_image_tag }}"
     restart: on-failure
     ports:
       - "8000:8000"

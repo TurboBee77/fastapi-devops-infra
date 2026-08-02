@@ -6,16 +6,11 @@
     state: present
     key: "{{ lookup('file', jenkins_cd_public_key_path) }}"
 
-- name: Upewnij się, że git jest zainstalowany
-  ansible.builtin.apt:
-    name: git
-    state: present
-
-- name: Sklonuj/zaktualizuj repozytorium appki
-  ansible.builtin.git:
-    repo: "{{ app_repo_url }}"
-    dest: "{{ app_dest }}/src"
-    version: master
+- name: Stwórz katalog docelowy dla appki
+  ansible.builtin.file:
+    path: "{{ app_dest }}"
+    state: directory
+    mode: "0755"
 
 - name: Wyrenderuj docker-compose.yml
   ansible.builtin.template:
@@ -23,8 +18,8 @@
     dest: "{{ app_dest }}/docker-compose.yml"
     mode: "0600"
 
-- name: Zbuduj obraz i uruchom stack (app + db)
+- name: Pobierz obraz i uruchom stack (app + db)
   community.docker.docker_compose_v2:
     project_src: "{{ app_dest }}"
-    build: policy
+    pull: always
     state: present
