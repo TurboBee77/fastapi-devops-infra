@@ -36,5 +36,5 @@
 - name: Pobierz obraz i uruchom stack (app + db)
   community.docker.docker_compose_v2:
     project_src: "{{ app_dest }}"
-    pull: always
+    pull: "{{ 'always' if app_image_tag == 'latest' else 'missing' }}"
     state: present
