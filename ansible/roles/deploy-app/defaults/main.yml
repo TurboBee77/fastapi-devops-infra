@@ -2,3 +2,4 @@ postgres_user: app
 postgres_db: app
 app_repo_url: https://github.com/TurboBee77/fastapi-realworld-example-app.git
 app_dest: /opt/app
+jenkins_cd_public_key_path: "~/.ssh/ssh_jenkins_cd_key.pub"
