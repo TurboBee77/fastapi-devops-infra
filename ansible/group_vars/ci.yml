@@ -1,4 +1,4 @@
-ufw_allowed_ports: [8080]
+ufw_allowed_ports: [9100,8080]
 jenkins_secrets:
   admin_password: "{{ vault_jenkins_admin_password }}"
   git_token: "{{ vault_jenkins_git_token }}"
