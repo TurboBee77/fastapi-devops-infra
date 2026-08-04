@@ -38,3 +38,4 @@
     project_src: "{{ app_dest }}"
     pull: "{{ 'always' if app_image_tag == 'latest' else 'missing' }}"
     state: present
+ 

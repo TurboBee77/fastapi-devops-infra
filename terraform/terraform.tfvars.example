@@ -1,9 +1,14 @@
 aws_region       = "eu-central-1"
 key_name         = "fastapi-devops-key"
 ssh_allowed_cidr = "0.0.0.0/0"
-instance_type    = "t3.micro"
+instance_type    = "t3.small"
 app_extra_ingress_ports = [8000]
 ci_extra_ingress_ports  = [8080]
+ci_internal_ingress_ports         = [9100]
+app_internal_ingress_ports        = [9100]
+monitoring_internal_ingress_ports = [9100, 9090]
+monitoring_extra_ingress_ports    = [3000]
+
 
 # Domyslne 8 GB starcza dla monitoring, ale nie dla ci/app (Docker + build
 # cache appki / Docker + Postgres) - patrz TODO.md, "no space left on device"

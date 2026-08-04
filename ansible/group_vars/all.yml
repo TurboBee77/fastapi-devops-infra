@@ -3,4 +3,3 @@ ansible_user: ubuntu
 ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new'
 ansible_become: true
 ansible_become_method: sudo
-
