@@ -31,3 +31,14 @@ variable "root_volume_size" {
   type        = number
   default     = 8
 }
+
+variable "internal_ingress_ports" {
+  description = "Porty TCP dostępne tylko z wewnątrz domyślnego VPC (np. metryki scrape'owane przez Prometheusa) - nie z internetu."
+  type        = list(number)
+  default     = []
+}
+
+variable "internal_cidr" {
+  description = "CIDR domyślnego VPC - źródło ruchu dozwolone dla internal_ingress_ports."
+  type        = string
+}

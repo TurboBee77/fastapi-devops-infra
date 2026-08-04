@@ -41,6 +41,17 @@ resource "aws_security_group" "this" {
     }
   }
 
+  dynamic "ingress" {
+    for_each = var.internal_ingress_ports
+    content {
+      description = "internal port ${ingress.value}"
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = [var.internal_cidr]
+    }
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
