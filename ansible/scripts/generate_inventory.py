@@ -10,13 +10,44 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TERRAFORM_DIR = REPO_ROOT / "terraform"
 INVENTORY_PATH = REPO_ROOT / "ansible" / "inventory" / "hosts.yml"
 
-# nazwa grupy Ansible -> nazwa outputu w terraform/outputs.tf
+
 ROLE_TO_OUTPUT = {
     "ci": "ci_public_ip",
     "app": "app_public_ip",
     "monitoring": "monitoring_public_ip",
 }
 
+ROLE_TO_PRIVATE_OUTPUT = {
+    "ci": "ci_private_ip",
+    "app": "app_private_ip",
+    "monitoring": "monitoring_private_ip",
+}
+
+def build_inventory(outputs: dict) -> dict:
+    children = {}
+    for role, output_name in ROLE_TO_OUTPUT.items():
+        if output_name not in outputs:
+            raise KeyError(
+                f"Brak outputu '{output_name}' w terraform output — sprawdź terraform/outputs.tf "
+                f"albo czy infrastruktura jest zaaplikowana (terraform apply)."
+            )
+        ip = outputs[output_name]["value"]
+
+        private_output_name = ROLE_TO_PRIVATE_OUTPUT[role]
+        if private_output_name not in outputs:
+            raise KeyError(f"Brak outputu '{private_output_name}' w terraform output.")
+        private_ip = outputs[private_output_name]["value"]
+
+        children[role] = {
+            "hosts": {
+                f"{role}-VM": {
+                    "ansible_host": ip,
+                    "private_ip": private_ip,
+                }
+            }
+        }
+
+    return {"all": {"children": children}}
 
 def get_terraform_outputs() -> dict:
     result = subprocess.run(
@@ -30,20 +61,6 @@ def get_terraform_outputs() -> dict:
             f"`terraform output -json` w {TERRAFORM_DIR} zakończyło się błędem:\n{result.stderr}"
         )
     return json.loads(result.stdout)
-
-
-def build_inventory(outputs: dict) -> dict:
-    children = {}
-    for role, output_name in ROLE_TO_OUTPUT.items():
-        if output_name not in outputs:
-            raise KeyError(
-                f"Brak outputu '{output_name}' w terraform output — sprawdź terraform/outputs.tf "
-                f"albo czy infrastruktura jest zaaplikowana (terraform apply)."
-            )
-        ip = outputs[output_name]["value"]
-        children[role] = {"hosts": {f"{role}-VM": {"ansible_host": ip}}}
-
-    return {"all": {"children": children}}
 
 
 def main() -> None:
