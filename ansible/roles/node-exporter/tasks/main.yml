@@ -1,0 +1,17 @@
+---
+- name: Uruchom kontener node_exporter
+  community.docker.docker_container:
+    name: node-exporter
+    image: "prom/node-exporter:{{ node_exporter_image_tag }}"
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)($|/)
+    state: started
