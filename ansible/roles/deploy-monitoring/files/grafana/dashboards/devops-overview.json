@@ -1,0 +1,78 @@
+{
+  "title": "DevOps Overview - appka + VM-ki",
+  "uid": "devops-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["devops-projekt"],
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate appki (req/s, per handler)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (handler) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Zużycie CPU (%) per VM",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (avg by (role) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+          "legendFormat": "{{role}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Zużycie RAM (%) per VM",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "legendFormat": "{{role}}"
+        }
+      ]
+    }
+  ]
+}
