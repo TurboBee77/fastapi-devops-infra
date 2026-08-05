@@ -10,16 +10,32 @@
     src: files/Dockerfile
     dest: "{{ jenkins_home }}/Dockerfile"
 
-- name: Kopiuj skrypt init-admin.groovy do kontekstu budowania
-  ansible.builtin.copy:
-    src: files/init-admin.groovy
-    dest: "{{ jenkins_home }}/init-admin.groovy"
-
 - name: Kopiuj plik zawierający pluginy
   ansible.builtin.copy:
     src: files/plugins.txt
     dest: "{{ jenkins_home }}/plugins.txt"
 
+# ----------------JCasC  config ------------------
+- name: Stwórz folder na sekrety
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}/secrets"
+    state: directory
+    mode: "0700"
+
+- name: Kopiuj sekrety do jenkins secrets
+  ansible.builtin.copy:
+    dest: "{{ jenkins_home }}/secrets/{{ item.key }}"
+    content: "{{ item.value }}"
+    mode: "0600"
+  no_log: true
+  loop: "{{ jenkins_secrets | dict2items }}"
+
+- name: Kopiuj plik JCasC
+  ansible.builtin.copy:
+    src: files/jenkins.yml
+    dest: "{{ jenkins_home }}/secrets/jenkins.yml"
+
+# -----------------Docker build and run ------------------
 - name: Zbuduj obraz z podstawowego pliku Dockerfile
   community.docker.docker_image:
     name: "{{ jenkins_image_tag }}"
@@ -36,11 +52,13 @@
     ports: 
       - "{{ jenkins_port }}:8080"
     volumes:
-      - jenkins_home:/var/jenkins_home
+      - jenkins_home:/var/jenkins_home 
       - /var/run/docker.sock:/var/run/docker.sock
+      - "{{ jenkins_home }}/secrets:/run/secrets:ro"  
     state: started
     env:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
-      JENKINS_ADMIN_ID: "{{ jenkins_admin_user }}"
-      JENKINS_ADMIN_PASSWORD: "{{ vault_jenkins_admin_password }}"
-
+      GIT_USER_NAME: "{{ git_user_name }}"
+      DOCKERHUB_USERNAME: "{{ dockerhub_username }}"
+      CASC_JENKINS_CONFIG: /run/secrets/jenkins.yml
+      JENKINS_PUBLIC_URL: "http://{{ ansible_host }}:{{ jenkins_port }}/"

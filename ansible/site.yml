@@ -4,6 +4,7 @@
   roles:
     - docker
     - ufw
+    - node-exporter
 
 - name: Postaw kontener docker aplikacji
   hosts: app
@@ -14,3 +15,9 @@
   hosts: ci
   roles:
     - deploy-jenkins
+
+- name: Postaw stack Prometheus + Grafana
+  hosts: monitoring
+  roles:
+    - deploy-monitoring
+

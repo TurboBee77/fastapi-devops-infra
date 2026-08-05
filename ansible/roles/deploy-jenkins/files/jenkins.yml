@@ -1,0 +1,93 @@
+jenkins:
+  systemMessage: "Jenkins managed via Configuration as Code\n"
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${readFile:/run/secrets/admin_password}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: ssh_cd_key
+              username: ubuntu
+              description: "Klucz SSH do deployu na VM2"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/ssh_cd_key}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "git-token"
+              username: "${GIT_USER_NAME}"
+              password: "${readFile:/run/secrets/git_token}"
+              description: "Username/Password Credentials for git hub"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "dockerhub-credentials"
+              username: "${DOCKERHUB_USERNAME}"
+              password: "${readFile:/run/secrets/dockerhub_token}"
+              description: "Username/Password Credentials for docker hub"
+          - string:
+              scope: GLOBAL
+              id: "git-token-secret"
+              secret: "${readFile:/run/secrets/git_token}"
+              description: "Git token secret for git hub"
+          - string:
+              scope: GLOBAL
+              id: "ansible-vault-password"
+              secret: "${readFile:/run/secrets/ansible_vault_password}"
+              description: "Haslo do Ansible Vault (deploy-app/vars/main.yml na VM2)"
+          - string:
+              scope: GLOBAL
+              id: "discord-webhook-url"
+              secret: "${readFile:/run/secrets/discord_webhook_url}"
+              description: "Discord webhook - powiadomienia o wyniku pipeline'u"
+
+unclassified:
+  location:
+    url: "${JENKINS_PUBLIC_URL}"
+  gitHubPluginConfig:
+    configs:
+      - name: "github"
+        apiUrl: "https://api.github.com"
+        credentialsId: "git-token-secret"
+        manageHooks: true
+
+
+
+jobs:
+  - script: |
+      multibranchPipelineJob('fastapi-app-ci') {
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('fastapi-app')
+                repoOwner('TurboBee77')
+                repository('fastapi-realworld-example-app')
+                repositoryUrl('https://github.com/TurboBee77/fastapi-realworld-example-app')
+                configuredByUrl(false)
+                credentialsId('git-token')
+                traits { 
+                  gitHubBranchDiscovery { strategyId(1) } 
+                }
+              }
+            }
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
+          }
+        }
+      }

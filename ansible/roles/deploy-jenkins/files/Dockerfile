@@ -3,7 +3,7 @@ FROM jenkins/jenkins:lts
 USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg \
+      ca-certificates curl gnupg ansible-core \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg \
        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
@@ -11,10 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ansible-galaxy collection install community.docker ansible.posix community.general
 
-COPY init-admin.groovy /usr/share/jenkins/ref/init.groovy.d/init-admin.groovy
-  
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
 
 RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt

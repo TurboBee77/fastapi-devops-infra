@@ -1,1 +1,9 @@
-ufw_allowed_ports: [8080]
+ufw_allowed_ports: [9100,8080]
+jenkins_secrets:
+  admin_password: "{{ vault_jenkins_admin_password }}"
+  git_token: "{{ vault_jenkins_git_token }}"
+  dockerhub_token: "{{ vault_jenkins_dockerhub_token }}"
+  ssh_cd_key: "{{ vault_jenkins_ssh_cd_key }}"
+  ansible_vault_password: "{{ vault_ansible_vault_password }}"
+  discord_webhook_url: "{{ vault_discord_webhook_url }}"
+jenkins_home: /opt/jenkins

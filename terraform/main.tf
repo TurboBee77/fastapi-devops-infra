@@ -13,6 +13,11 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_vpc" "default" {
+  default = true
+}
+
+
 module "ci" {
   source = "./modules/ec2-instance"
 
@@ -21,6 +26,9 @@ module "ci" {
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
   extra_ingress_ports = var.ci_extra_ingress_ports
+  root_volume_size = var.ci_root_volume_size # Docker + Jenkins w Docker Compose - domyślne 8 GB jest za mało
+  internal_ingress_ports = var.ci_internal_ingress_ports
+  internal_cidr = data.aws_vpc.default.cidr_block
 }
 
 module "app" {
@@ -31,7 +39,9 @@ module "app" {
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
   extra_ingress_ports = var.app_extra_ingress_ports
-  root_volume_size = 12 # Docker + Postgres w Docker Compose - domyślne 8 GB jest za mało
+  root_volume_size = var.app_root_volume_size # Docker + Postgres w Docker Compose - domyślne 8 GB jest za mało
+  internal_ingress_ports = var.app_internal_ingress_ports
+  internal_cidr = data.aws_vpc.default.cidr_block
 }
 
 module "monitoring" {
@@ -41,4 +51,7 @@ module "monitoring" {
   instance_type    = var.instance_type
   key_name         = var.key_name
   ssh_allowed_cidr = var.ssh_allowed_cidr
+  extra_ingress_ports = var.monitoring_extra_ingress_ports
+  internal_ingress_ports = var.monitoring_internal_ingress_ports
+  internal_cidr = data.aws_vpc.default.cidr_block
 }

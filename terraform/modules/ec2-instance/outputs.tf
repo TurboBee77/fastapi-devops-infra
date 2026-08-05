@@ -12,3 +12,8 @@ output "security_group_id" {
   description = "ID security group przypisanego do instancji"
   value       = aws_security_group.this.id
 }
+
+output "private_ip" {
+  description = "Prywatny adres IP instancji w domyślnym VPC"
+  value       = aws_instance.ec2.private_ip
+}

@@ -1,4 +1,5 @@
 jenkins_port: 8080
-jenkins_home: /opt/jenkins
 jenkins_image_tag: jenkins-docker-cli:lts
 jenkins_admin_user: admin
+git_user_name: Turbobee77
+dockerhub_username: turbobee

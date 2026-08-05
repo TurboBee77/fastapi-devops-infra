@@ -1,0 +1,31 @@
+---
+- name: Stwórz katalog docelowy dla monitoringu
+  ansible.builtin.file:
+    path: "{{ monitoring_dest }}"
+    state: directory
+    mode: "0755"
+
+- name: Wyrenderuj docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_dest }}/docker-compose.yml"
+    mode: "0600"
+
+- name: Wyrenderuj konfigurację Prometheusa
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_dest }}/prometheus.yml"
+    mode: "0644"
+  notify: Zrestartuj Prometheusa
+
+- name: Skopiuj provisioning Grafany (datasource + wskazanie folderu dashboardów)
+  ansible.builtin.copy:
+    src: grafana/
+    dest: "{{ monitoring_dest }}/grafana/"
+    mode: "0644"
+
+- name: Uruchom stack Prometheus + Grafana
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_dest }}"
+    pull: missing
+    state: present
