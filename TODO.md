@@ -40,6 +40,15 @@
   zdeployuje, niezależnie od wyniku. Zmergować/zrebase'ować z `master`, albo
   usunąć branch, jeśli nieużywany.
 
+## Monitoring (VM3)
+
+- `fastapi-app` job w `prometheus.yml.j2` scrape'uje po `ansible_host`
+  (publiczny IP) — działa, ale niespójne z node_exporterami, które
+  przełączone na `private_ip`. Kosmetyka, do wyrównania przy okazji.
+- Dashboard `devops-overview.json` nie ma panelu latencji — appka wystawia
+  histogram `http_request_duration_seconds`, nieużywany. Naturalne
+  rozszerzenie, gdy będzie czas.
+
 ## Drobne
 
 - Workspace joba (`/var/jenkins_home/jobs/.../workspace`) nie jest

@@ -5,9 +5,9 @@ aplikacji z forka [`fastapi-realworld-example-app`](https://github.com/TurboBee7
 (FastAPI + PostgreSQL). Docelowo: 3 instancje EC2 (Jenkins, aplikacja,
 monitoring), stawiane od zera niewielką liczbą komend.
 
-**Stan repo: Etap 0–6 zamknięte.** Terraform stawia infrastrukturę, Ansible
+**Stan repo: Etap 0–7 zamknięte.** Terraform stawia infrastrukturę, Ansible
 konfiguruje bazę (Docker + firewall) na wszystkich hostach, wdraża aplikację
-(backend + PostgreSQL w Docker Compose) na VM2 i stawia Jenkinsa na VM1 w
+(backend + PostgreSQL w Docker Compose) na VM2, stawia Jenkinsa na VM1 w
 pełni skonfigurowanego przez **Jenkins Configuration as Code** (JCasC,
 `ansible/roles/deploy-jenkins/files/jenkins.yml`): setup wizard pominięty,
 konto admina, wszystkie credentiale (SSH do VM2, GitHub PAT ×2, Docker Hub,
@@ -18,12 +18,17 @@ Vault (`/run/secrets/`), nie z surowych zmiennych środowiskowych.
 Jenkinsfile w forku appki: `Test` (pytest na efemerycznej bazie) →
 `Build & Push` (Docker Hub) → `Deploy` (`when { branch 'master' }` —
 Ansible/SSH aktualizuje appkę na VM2) → `post { success/failure }`
-(powiadomienie na Discord).
+(powiadomienie na Discord). Na VM3 stoi Prometheus + Grafana (Docker
+Compose, rola `deploy-monitoring`) — appka wystawia `/metrics`
+(`prometheus-fastapi-instrumentator`), Prometheus scrape'uje appkę i
+node_exportery na wszystkich 3 VM po **prywatnym** IP (nie publicznym —
+patrz [Znane ograniczenia](#znane-ograniczenia)), Grafana ma dashboard
+"DevOps Overview" auto-provisionowany jako kod (zero klikania po recreate).
 **Konsekwencja:** skoro wszystkie credentiale Jenkinsa żyją teraz w Vault
 na control-node VM (nie w AWS), pełny cykl `terraform destroy` → `apply` →
 `ansible-playbook` **nie wymaga już ręcznej konfiguracji w UI Jenkinsa** —
 patrz [Konfiguracja Jenkinsa po każdym pełnym recreate](#konfiguracja-jenkinsa-po-każdym-pełnym-recreate).
-Monitoring (Etap 7) to jedyny brakujący kawałek rdzenia priorytetowego.
+Rdzeń priorytetowy (Ansible, Prometheus, Grafana) jest teraz kompletny.
 
 ## Architektura
 
@@ -43,16 +48,20 @@ tier eligible" dla tego konta — zweryfikuj to jednak samodzielnie przez
 |---|---|---|---|---|
 | VM1 | `ci` | Jenkins (kontener, port 8080) | tak | `ci-sg` |
 | VM2 | `app` | Backend + PostgreSQL (Docker Compose) | tak | `app-sg` |
-| VM3 | `monitoring` | Prometheus + Grafana (Docker Compose) — Etap 7 | tak | `monitoring-sg` |
+| VM3 | `monitoring` | Prometheus + Grafana (Docker Compose) | tak | `monitoring-sg` |
 
 Sieć: domyślne VPC konta AWS, region `eu-central-1`. Każda instancja ma
 własny Elastic IP (adres przetrwa `terraform destroy`→`apply`) i własny
 security group. Każdy zaczyna z portem 22 (SSH); `app-sg` ma dodatkowo
-otwarty port 8000 (API aplikacji), `ci-sg` port 8080 (UI Jenkinsa) — oba
-przez zmienną `extra_ingress_ports` modułu `ec2-instance`, sterowaną
-zmiennymi root modułu `app_extra_ingress_ports`/`ci_extra_ingress_ports`
-w `terraform.tfvars` — patrz [`docs/network-architecture.md`](docs/network-architecture.md)
-po diagram i plan dalszych rozszerzeń portów.
+otwarty port 8000 (API aplikacji) i 9100 (node_exporter), `ci-sg` port
+8080 (UI Jenkinsa) i 9100, `monitoring-sg` port 3000 (Grafana), 9090
+(Prometheus UI) i 9100. Dwie **osobne** pule portów per moduł: publiczna
+(`extra_ingress_ports`, `0.0.0.0/0` albo zawężony `ssh_allowed_cidr`) dla
+tego, co musi być dostępne z zewnątrz (8000, 8080, 3000), i wewnętrzna
+(`internal_ingress_ports`, CIDR domyślnego VPC — `data "aws_vpc" "default"`)
+dla portów bez auth, które nie powinny być widoczne z internetu (9100,
+9090) — patrz [`docs/network-architecture.md`](docs/network-architecture.md)
+po diagram.
 
 Na poziomie systemu operacyjnego druga warstwa firewalla to `ufw` (rola
 Ansible), konfigurowana z domyślną polityką `deny incoming` / `allow
@@ -100,9 +109,13 @@ działa natywnie na Windows jako control node):
   o hasło, otworzy odszyfrowaną treść w `$EDITOR`, zaszyfruje z powrotem
   przy zapisie).
 
-  Ten sam mechanizm (i to samo hasło do Vaulta) dotyczy drugiego pliku:
-  `ansible/roles/deploy-jenkins/vars/main.yml` — załóż go analogicznie z
-  `vars/main.yml.example` w tym samym katalogu. Niesie sześć zmiennych,
+  Ten sam mechanizm (i to samo hasło do Vaulta) dotyczy dwóch kolejnych
+  plików: `ansible/roles/deploy-jenkins/vars/main.yml` i
+  `ansible/roles/deploy-monitoring/vars/main.yml` (jedna zmienna,
+  `vault_grafana_admin_password` — hasło admina Grafany) — załóż je
+  analogicznie z odpowiednich `vars/main.yml.example`.
+
+  `deploy-jenkins/vars/main.yml` niesie sześć zmiennych,
   wszystkie wstrzykiwane do JCasC jako pliki w `/run/secrets/` (nie env
   vars): `vault_jenkins_admin_password`, `vault_jenkins_git_token`
   (GitHub PAT), `vault_jenkins_dockerhub_token` (Docker Hub Access Token),
@@ -176,7 +189,20 @@ curl http://<Elastic-IP-app>:8000/docs
 
 # Jenkins wstał? (adres z: terraform output ci_public_ip)
 curl -I http://<Elastic-IP-ci>:8080
+
+# appka wystawia metryki? (adres z: terraform output app_public_ip)
+curl http://<Elastic-IP-app>:8000/metrics
+
+# Grafana wstała? (adres z: terraform output monitoring_public_ip)
+curl -I http://<Elastic-IP-monitoring>:3000
 ```
+
+Prometheus (`:9090`) i node_exporter (`:9100`) są celowo ograniczone do
+ruchu wewnątrz VPC (patrz [Architektura](#architektura)) — nie da się ich
+sprawdzić `curl`-em z control-node. Zamiast tego, po SSH na dowolną z 3
+VM: `curl -s localhost:9090/api/v1/targets | python3 -m json.tool` (jeśli
+jesteś na `monitoring`) albo `curl -s http://<dowolny-private-ip>:9100/metrics`
+(z dowolnej z 3 VM, ruch zostaje wtedy wewnątrz VPC).
 
 Pierwsze logowanie do Jenkinsa: `http://<Elastic-IP-ci>:8080`, loginem i
 hasłem z `ansible/roles/deploy-jenkins/vars/main.yml` (setup wizard jest
@@ -243,17 +269,21 @@ fastapi-devops-infra/
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── requirements.yml        (kolekcje spoza ansible-core, np. community.docker)
-│   ├── group_vars/{all,app}.yml
+│   ├── group_vars/{all,app,ci,monitoring}.yml
 │   ├── inventory/hosts.yml     (generowany skryptem, gitignored)
 │   ├── scripts/generate_inventory.py
 │   ├── roles/
-│   │   ├── docker/, ufw/       (wspólne, wszystkie VM)
+│   │   ├── docker/, ufw/, node-exporter/  (wspólne, wszystkie VM)
 │   │   ├── deploy-app/         (specyficzna dla VM2: backend + PostgreSQL)
 │   │   │   ├── defaults/, vars/main.yml (zaszyfrowany Vault)
 │   │   │   └── templates/docker-compose.yml.j2
-│   │   └── deploy-jenkins/     (specyficzna dla VM1: Jenkins w kontenerze)
-│   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault)
-│   │       └── files/Dockerfile, jenkins.yml (JCasC), plugins.txt
+│   │   ├── deploy-jenkins/     (specyficzna dla VM1: Jenkins w kontenerze)
+│   │   │   ├── defaults/, vars/main.yml (zaszyfrowany Vault)
+│   │   │   └── files/Dockerfile, jenkins.yml (JCasC), plugins.txt
+│   │   └── deploy-monitoring/  (specyficzna dla VM3: Prometheus + Grafana)
+│   │       ├── defaults/, vars/main.yml (zaszyfrowany Vault), handlers/
+│   │       ├── templates/docker-compose.yml.j2, prometheus.yml.j2
+│   │       └── files/grafana/{provisioning,dashboards}/
 │   └── site.yml
 ├── docs/network-architecture.md
 ├── .gitattributes, .gitignore, CONTRIBUTING.md
@@ -269,9 +299,8 @@ Konwencje branchy i commitów (Conventional Commits) — patrz
 Poniższe jest w harmonogramie, ale nie ma jeszcze pokrycia w tym repo —
 nie próbuj tego uruchamiać na obecnym stanie kodu:
 
-- Rola Ansible `deploy-monitoring` (VM3) — Etap 7
-- Prometheus/Grafana — Etap 7
 - Terraform state w S3 — backlog, poza rdzeniem obowiązkowym
+- Alert Manager, Loki — backlog (Etap 10/11), po potwierdzonym rdzeniu
 
 ## Znane ograniczenia
 
@@ -350,3 +379,26 @@ nie próbuj tego uruchamiać na obecnym stanie kodu:
 - Repo appki ma nagromadzone martwe webhooki GitHub z poprzednich cykli
   `destroy`→`apply` (`manageHooks: true` tworzy nowy przy zmianie IP, nie
   usuwa starych) — kosmetyczne, do ręcznego sprzątania, patrz `TODO.md`
+- **Ruch między instancjami EC2 po publicznym Elastic IP nie jest
+  traktowany jako "wewnątrz VPC" przez security group** — reguła z
+  `cidr_blocks` ograniczonym do CIDR domyślnego VPC (`internal_ingress_ports`,
+  porty 9100/9090) dopasowuje się tylko do ruchu idącego po **prywatnym**
+  IP instancji. Stąd `prometheus.yml.j2` scrape'uje node_exportery przez
+  `hostvars[...]['private_ip']`, nie `ansible_host` (publiczny) — patrz
+  `etap-7-podsumowanie.md`, błąd 4
+- **Zmiana pliku bind-mountowanego do kontenera (np. `prometheus.yml`) nie
+  jest wykrywana przez `docker_compose_v2 state: present`** — moduł
+  porównuje tylko definicję serwisu w `docker-compose.yml` (obraz, porty,
+  lista wolumenów), nie treść plików, które te wolumeny montują. Rola
+  `deploy-monitoring` używa handlera (`notify` na tasku `template` →
+  `state: restarted` dla samego Prometheusa) — ale to łapie tylko
+  **przyszłe** zmiany w ramach jednego przebiegu; jeśli plik już zdryfował
+  wcześniej (przed dodaniem handlera), trzeba raz ręcznie
+  `docker compose restart prometheus`
+- `fastapi-app` job w `prometheus.yml.j2` scrape'uje appkę po `ansible_host`
+  (publiczny IP), nie `private_ip` — działa (port 8000 jest i tak
+  publiczny), ale niespójne z node_exporterami; kosmetyka, nie błąd
+- Dashboard Grafany (`devops-overview.json`) nie ma jeszcze panelu
+  latencji (appka wystawia histogram `http_request_duration_seconds`,
+  niewykorzystany) — request rate + CPU/RAM wystarczyły na warunek
+  "gotowe" Etapu 7, latencja to naturalne rozszerzenie na przyszłość
