@@ -1,0 +1,4 @@
+monitoring_dest: /opt/monitoring
+grafana_admin_user: admin
+prometheus_image_tag: v2.55.1
+grafana_image_tag: "11.2.0"

@@ -16,3 +16,8 @@
   roles:
     - deploy-jenkins
 
+- name: Postaw stack Prometheus + Grafana
+  hosts: monitoring
+  roles:
+    - deploy-monitoring
+
