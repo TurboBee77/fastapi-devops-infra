@@ -16,6 +16,7 @@
     src: prometheus.yml.j2
     dest: "{{ monitoring_dest }}/prometheus.yml"
     mode: "0644"
+  notify: Zrestartuj Prometheusa
 
 - name: Skopiuj provisioning Grafany (datasource + wskazanie folderu dashboardów)
   ansible.builtin.copy:
