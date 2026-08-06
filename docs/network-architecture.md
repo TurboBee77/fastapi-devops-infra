@@ -1,8 +1,12 @@
 # Architektura sieci
 
-Infrastruktura opiera się o domyślne VPC konta AWS (region `eu-central-1`), z trzema
-instancjami EC2 tworzonymi przez jeden reużywalny moduł Terraform (`modules/ec2-instance`),
-wywołany trzykrotnie z różną rolą.
+Infrastruktura działa w domyślnym VPC konta AWS (region `eu-central-1`), z
+trzema instancjami EC2 (`t3.small`) tworzonymi jednym reużywalnym modułem
+Terraform (`modules/ec2-instance`), wywołanym trzykrotnie z różną rolą.
+Każda instancja ma własny Elastic IP i własny security group. Ruch
+przychodzący filtrowany jest dwuwarstwowo: security group AWS (ta strona)
+i `ufw` na poziomie systemu (`deny incoming` / `allow outgoing` + jawne
+wyjątki pokrywające się z regułami SG poniżej).
 
 ## Diagram
 
@@ -11,82 +15,46 @@ flowchart TB
     Internet(("Internet"))
 
     subgraph VPC["Domyślne VPC (eu-central-1)"]
-        subgraph CI["EC2: ci (t3.micro)"]
-            CI_SG["Security Group: ci-sg"]
-        end
-        subgraph APP["EC2: app (t3.micro)"]
-            APP_SG["Security Group: app-sg"]
-        end
-        subgraph MON["EC2: monitoring (t3.micro)"]
-            MON_SG["Security Group: monitoring-sg"]
-        end
+        direction LR
+        CI["EC2: ci (t3.small)<br/>ci-sg"]
+        APP["EC2: app (t3.small)<br/>app-sg"]
+        MON["EC2: monitoring (t3.small)<br/>monitoring-sg"]
+
+        MON -->|"9100/tcp scrape"| CI
+        MON -->|"9100/tcp scrape"| APP
+        MON -->|"9100/tcp scrape (self)"| MON
     end
 
     CI_EIP["Elastic IP"] --- CI
     APP_EIP["Elastic IP"] --- APP
     MON_EIP["Elastic IP"] --- MON
 
-    Internet -->|"SSH 22 (ssh_allowed_cidr)"| CI_EIP
-    Internet -->|"UI Jenkinsa 8080"| CI_EIP
-    Internet -->|"SSH 22 (ssh_allowed_cidr)"| APP_EIP
-    Internet -->|"API appki 8000"| APP_EIP
-    Internet -->|"SSH 22 (ssh_allowed_cidr)"| MON_EIP
+    Internet -->|"22 SSH · 8080 Jenkins"| CI_EIP
+    Internet -->|"22 SSH · 8000 API"| APP_EIP
+    Internet -->|"22 SSH · 3000 Grafana"| MON_EIP
 ```
+
+## Porty per instancja
+
+| VM | Publiczne (Internet, `extra_ingress_ports`) | Wewnętrzne (tylko CIDR VPC, `internal_ingress_ports`) |
+|---|---|---|
+| `ci` | 22 (SSH), 8080 (UI Jenkinsa) | 9100 (node_exporter) |
+| `app` | 22 (SSH), 8000 (API FastAPI) | 9100 (node_exporter) |
+| `monitoring` | 22 (SSH), 3000 (Grafana) | 9100 (node_exporter), 9090 (Prometheus UI) |
+
+Dwie osobne pule portów w module (`extra_ingress_ports` vs
+`internal_ingress_ports`) rozdzielają to, co musi być dostępne z całego
+internetu, od tego, co nie ma własnego uwierzytelniania (node_exporter,
+Prometheus UI) i ma być widoczne wyłącznie z wnętrza VPC —
+`internal_ingress_ports` używa CIDR domyślnego VPC (`data "aws_vpc"
+"default"`), nie `ssh_allowed_cidr`. Ruch wewnętrzny (Prometheus →
+node_exporter) musi iść po **prywatnym** IP instancji (`private_ip`) —
+ruch między dwiema EC2 idący po publicznym Elastic IP nie jest dopasowywany
+przez regułę SG ograniczoną do CIDR VPC.
 
 ## Rozmiar dysku (EBS)
 
-Domyślne AMI Ubuntu 24.04 startuje z root volume 8 GB. Instancja `app` (Docker +
-PostgreSQL w Docker Compose) ma to zwiększone do **12 GB** przez zmienną modułu
-`root_volume_size` (nadpisaną w `terraform/main.tf` tylko dla `app`) — Postgres
-i obrazy Dockera szybko wyczerpałyby domyślne 8 GB. `ci` i `monitoring` zostają
-przy domyślnych 8 GB. Łącznie 8+8+12 = 28 GB, w granicach limitu AWS Free Tier
-(30 GB-miesiąc EBS na całe konto).
-
-Migracja bazy na zarządzaną usługę (RDS) rozwiązałaby problem miejsca elegancko,
-ale to zmiana architektury wykraczająca poza założenia z DevOpsProj.md (Postgres
-ma działać w Docker Compose na VM2) i nieproporcjonalny nakład pracy względem
-zakresu tego etapu — świadomie odrzucone na rzecz zwiększenia root volume.
-
-## Stan na Etap 1
-
-- Każda instancja ma własny Elastic IP — adres stały, niezależny od `terraform destroy`/`apply`
-  konkretnej instancji (patrz `modules/ec2-instance/main.tf`, zasób `aws_eip`).
-- Każda instancja ma własny security group (`<rola>-sg`), obecnie otwierający **wyłącznie port 22
-  (SSH)** ze źródła zdefiniowanego w zmiennej `ssh_allowed_cidr` (domyślnie `0.0.0.0/0`,
-  do zawężenia w `terraform.tfvars`).
-- Ruch wychodzący (`egress`) jest w pełni otwarty na wszystkich trzech instancjach.
-- Brak w tym momencie komunikacji między instancjami zdefiniowanej na poziomie security group
-  (np. `ci` → `app` po SSH do celów deployu) — to zostanie dodane w Etapie 6 (CD), gdy Jenkins
-  będzie faktycznie potrzebował łączyć się z VM2.
-  **Ważne:** to nie jest ograniczenie sieci VPC (routing działa między wszystkimi instancjami
-  w tym samym VPC), tylko brak reguł `ingress` w security group. Gdy zajdzie potrzeba (Etap 6/7),
-  reguła powinna wskazywać jako źródło **ID security group** drugiej instancji
-  (`source_security_group_id`), a nie szeroki CIDR — dostęp dostanie wtedy tylko konkretna rola,
-  nie cały VPC.
-
-## Stan na Etap 4
-
-Zrealizowane rozszerzenia portów (przez zmienną `extra_ingress_ports` modułu, sterowaną
-per rola zmiennymi root modułu `app_extra_ingress_ports`/`ci_extra_ingress_ports` w
-`terraform.tfvars`):
-
-| Rola | Etap | Port | Co udostępnia |
-|---|---|---|---|
-| `app` | Etap 3 (aplikacja) | 8000 | API FastAPI (Docker Compose, `app` service) |
-| `ci` | Etap 4 (Jenkins) | 8080 | UI Jenkinsa (kontener, domyślny port obrazu `jenkins/jenkins`) |
-
-Oba porty otwarte z tego samego źródła co SSH (`ssh_allowed_cidr`, domyślnie `0.0.0.0/0`)
-— zawężenie dotyczy więc całego ruchu przychodzącego do danej instancji, nie tylko SSH.
-
-## Planowane rozszerzenia (kolejne etapy)
-
-Moduł `ec2-instance` przyjmuje zmienną `extra_ingress_ports` (lista dodatkowych portów TCP)
-właśnie po to, żeby dodanie portów per rola nie wymagało zmian w kodzie modułu — tylko w
-wywołaniu w `terraform/main.tf`. Konkretne porty zostaną dopisane wraz z odpowiednim etapem:
-
-| Rola | Etap | Planowany dodatkowy port |
-|---|---|---|
-| `monitoring` | Etap 7 (Prometheus + Grafana) | porty Prometheusa i Grafany (do ustalenia przy docker-compose) |
-
-Druga warstwa firewalla (`ufw` na poziomie systemu, rola Ansible z Etapu 2) jest opisana
-osobno w dokumentacji Ansible — tu opisana jest wyłącznie warstwa AWS (security groups).
+Root volume parametryzowany per instancja (`ci_root_volume_size`,
+`app_root_volume_size` w `terraform.tfvars`) — domyślne 8 GB AMI Ubuntu
+24.04 jest za małe pod Docker + build cache (`ci`) oraz Docker + PostgreSQL
+(`app`) pod pełnym obciążeniem.

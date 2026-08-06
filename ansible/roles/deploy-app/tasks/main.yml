@@ -5,6 +5,7 @@
     user: ubuntu
     state: present
     key: "{{ lookup('file', jenkins_cd_public_key_path) }}"
+  when: manage_cd_key | bool
 
 
 - name: Upewnij się, że katalog sekretów na VM1 istnieje
