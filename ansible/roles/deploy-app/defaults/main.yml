@@ -3,4 +3,4 @@ postgres_db: app
 app_dest: /opt/app
 app_image_tag: latest
 jenkins_cd_public_key_path: "~/.ssh/ssh_jenkins_cd_key.pub"
-manage_cd_key: true
+full_provisioning_run: true
