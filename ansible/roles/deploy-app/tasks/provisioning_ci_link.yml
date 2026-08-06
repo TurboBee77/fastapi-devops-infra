@@ -1,0 +1,20 @@
+---
+- name: Dodaj klucz SSH do autoryzacji na VM2
+  ansible.posix.authorized_key:
+    user: ubuntu
+    state: present
+    key: "{{ lookup('file', jenkins_cd_public_key_path) }}"
+
+- name: Upewnij się, że katalog sekretów na VM1 istnieje
+  ansible.builtin.file:
+    path: "{{ hostvars[groups['ci'][0]]['jenkins_home'] }}/secrets"
+    state: directory
+    mode: "0700"
+  delegate_to: "{{ groups['ci'][0] }}"
+
+- name: Udostępnij aktualne IP VM2 dla stage Deploy w Jenkinsie
+  ansible.builtin.copy:
+    content: "{{ ansible_host }}"
+    dest: "{{ hostvars[groups['ci'][0]]['jenkins_home'] }}/secrets/app_host_ip"
+    mode: "0644"
+  delegate_to: "{{ groups['ci'][0] }}"
