@@ -15,6 +15,16 @@
     src: files/plugins.txt
     dest: "{{ jenkins_home }}/plugins.txt"
 
+- name: Zaplanuj codzienne czyszczenie cache Dockera (build cache, nieuzywane warstwy)
+  ansible.builtin.cron:
+    name: "docker system prune"
+    user: root
+    minute: "0"
+    hour: "3"
+    job: "docker system prune -af >> /var/log/docker-prune.log 2>&1"
+    state: present
+
+
 # ----------------JCasC  config ------------------
 - name: Stwórz folder na sekrety
   ansible.builtin.file:
